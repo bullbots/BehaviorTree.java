@@ -1,0 +1,4 @@
+rootProject.name = 'behaviortree-java'
+
+include 'behaviortree-core'
+include 'behaviortree-wpilib'
