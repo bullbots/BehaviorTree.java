@@ -1,116 +1,94 @@
 ![License MIT](https://img.shields.io/github/license/BehaviorTree/BehaviorTree.CPP?color=blue)
-[![conan Ubuntu](https://github.com/BehaviorTree/BehaviorTree.CPP/actions/workflows/cmake_ubuntu.yml/badge.svg)](https://github.com/BehaviorTree/BehaviorTree.CPP/actions/workflows/cmake_ubuntu.yml)
-[![conan Windows](https://github.com/BehaviorTree/BehaviorTree.CPP/actions/workflows/cmake_windows.yml/badge.svg)](https://github.com/BehaviorTree/BehaviorTree.CPP/actions/workflows/cmake_windows.yml)
-[![ros2](https://github.com/BehaviorTree/BehaviorTree.CPP/actions/workflows/ros2.yaml/badge.svg)](https://github.com/BehaviorTree/BehaviorTree.CPP/actions/workflows/ros2.yaml)
-[![pixi (Conda)](https://github.com/BehaviorTree/BehaviorTree.CPP/actions/workflows/pixi.yaml/badge.svg)](https://github.com/BehaviorTree/BehaviorTree.CPP/actions/workflows/pixi.yaml)
-[![Coverage Status](https://coveralls.io/repos/github/BehaviorTree/BehaviorTree.CPP/badge.svg?branch=master)](https://coveralls.io/github/BehaviorTree/BehaviorTree.CPP?branch=master)
 
-# BehaviorTree.CPP 4.9
+# BehaviorTree.CPP for Java / WPILib
 
 <p align="center"><img width=350 src="animated.svg"></p>
 
-This  __C++ 17__ library provides a framework to create BehaviorTrees.
-It was designed to be flexible, easy to use, reactive and fast.
+This fork ports [BehaviorTree.CPP](https://github.com/BehaviorTree/BehaviorTree.CPP) to a
+from-scratch __Java__ library for __FRC__ robot code written against __WPILib__. It provides a
+framework to create BehaviorTrees, designed to be flexible, easy to use, reactive and fast -
+built for the same reasons teams reach for command-based programming, but for coordinating
+larger, more dynamic autonomous/teleop behaviors than a single `Command` composition comfortably
+expresses.
 
-Even if our main use-case is __robotics__, you can use this library to build
-__AI for games__, or to replace Finite State Machines.
+There are a few features that make __BehaviorTree.CPP__ unique, when compared to other
+implementations, all of which carry over to this port:
 
-There are a few features that make __BehaviorTree.CPP__ unique, when compared to other implementations:
-
-- It makes __asynchronous Actions__, i.e. non-blocking, a first-class citizen.
+- It makes __asynchronous Actions__, i.e. non-blocking, a first-class citizen - a natural fit for
+  the FRC command lifecycle (`initialize`/`execute`/`end`).
 
 - You can build __reactive__ behaviors that execute multiple Actions concurrently (orthogonality).
 
-- Trees are defined using a Domain Specific __scripting language__ (based on XML), and can be loaded at run-time; in other words, even if written in C++, the morphology of the Trees is _not_ hard-coded.
+- Trees are defined using a Domain Specific __scripting language__ (based on XML), and can be
+  loaded at run-time; in other words, even if written in Java, the morphology of the Trees is
+  _not_ hard-coded - deploy a new autonomous routine by editing an XML file, no recompile needed.
 
-- You can statically link your custom TreeNodes or convert them into __plugins__
-and load them at run-time.
+- You can register your own `TreeNode` subclasses, or wrap an existing WPILib `Command` as a leaf
+  with a single line of code.
 
-- It provides a type-safe and flexible mechanism to do __Dataflow__ between
-  Nodes of the Tree.
+- It provides a type-safe and flexible mechanism to do __Dataflow__ between Nodes of the Tree via
+  a typed Blackboard.
 
-- It includes a __logging/profiling__ infrastructure that allows the user
-to visualize, record, replay, and analyze state transitions.
+- Live node status can be streamed to NetworkTables, so you can watch a tree run on
+  Shuffleboard/Elastic/AdvantageScope while testing.
+
+The Java port lives entirely under [`java/`](java/); see **[java/README.md](java/README.md)** for
+what was ported, what was deliberately left out (and why), build instructions, and a usage
+example. The original C++17 library this was ported from is unchanged and still builds normally
+from the repository root - see below.
 
 ## Documentation
 
-- **Tutorials and general documentation**: https://www.behaviortree.dev/
-- **Auto-generated Doxygen**: https://behaviortree.github.io/BehaviorTree.CPP/
-- **Community support and forum**: https://github.com/BehaviorTree/BehaviorTree.CPP/discussions
+- **Java port docs, scope, and usage example**: [java/README.md](java/README.md)
+- **Upstream BT.CPP tutorials and general documentation** (the concepts, XML format, and
+  scripting language are shared): https://www.behaviortree.dev/
+- **Upstream auto-generated Doxygen** (for the original C++ API): https://behaviortree.github.io/BehaviorTree.CPP/
 
-# GUI Editor
+## GUI Editor
 
-Editing a BehaviorTree is as simple as editing an XML file in your favorite text editor.
+Editing a BehaviorTree is as simple as editing an XML file in your favorite text editor, and the
+XML format is shared with upstream BT.CPP, so [Groot2](https://www.behaviortree.dev/groot) can
+still be used to *author* trees for this port.
 
-If you are looking for a fancier graphical user interface (and I know you do) check
-[Groot2](https://www.behaviortree.dev/groot) out.
+Groot2's *live monitoring*, however, talks to a running tree over ZeroMQ, which this port does not
+implement (see [java/README.md](java/README.md) for why). For live monitoring on a robot, use
+`NTBehaviorTreeLogger` instead, which streams node status to NetworkTables so any FRC dashboard
+can display it.
 
 ![Groot screenshot](docs/groot-screenshot.png)
 
-# How to compile
+## How to compile
 
-**BT.CPP** requires a compiler that supports C++17.
+### Java port
 
-Three build systems are supported:
+Requires a JDK compatible with WPILib's target (Java 17+). From the `java/` directory:
 
-- **colcon (ament)**, if you use ROS2
-- **conan** otherwise (Linux/Windows).
-- **straight cmake** if you want to be personally responsible for dependencies :)
-
-Compiling with [conan](https://conan.io/):
-
-> [!NOTE]
-> Conan builds require CMake 3.23 or newer.
-
-Assuming that you are in the **root** directory of `BehaviorTree.CPP`:
-
-```
-conan install . -s build_type=Release --build=missing
-cmake --preset conan-release
-cmake --build --preset conan-release
+```bash
+cd java
+./gradlew :behaviortree-core:build   # pure-Java engine + tests, builds anywhere
+./gradlew :behaviortree-wpilib:build # FRC/Command-based integration, needs frcmaven.wpi.edu
 ```
 
-If you have dependencies such as ZeroMQ and SQlite already installed and you don't want to
-use conan, simply type:
+See [java/README.md](java/README.md) for how to publish the modules and consume them from a
+robot project as a GradleRIO vendor library.
 
+### Original C++ library
+
+The C++17 source this was ported from is untouched and still lives at the repository root
+(`include/`, `src/`, `CMakeLists.txt`, etc.). Three build systems are supported there - colcon
+(ROS2), conan, or plain CMake - see the
+[upstream BehaviorTree.CPP README](https://github.com/BehaviorTree/BehaviorTree.CPP#how-to-compile)
+for details, or:
+
+```bash
+mkdir build && cmake -S . -B build && cmake --build build --parallel
 ```
-mkdir build_release
-cmake -S . -B build_release
-cmake --build build_release --parallel
-```
 
-If you want to build in a [pixi](https://pixi.sh/) project (conda virtual environment).
-```
-pixi run build
-```
+## Commercial support
 
-If you want to use BT.CPP in your application, please refer to the
-example here: https://github.com/BehaviorTree/btcpp_sample .
-
-## Installing BehaviorTree.CPP (vcpkg)
-
-Alternatively, you can build and install behaviortree-cpp using [vcpkg](https://github.com/Microsoft/vcpkg/) dependency manager:
-
-    git clone https://github.com/Microsoft/vcpkg.git
-    cd vcpkg
-    ./bootstrap-vcpkg.sh
-    ./vcpkg integrate install
-    ./vcpkg install behaviortree-cpp
-
-The behaviortree-cpp port in vcpkg is kept up to date by Microsoft team members and community contributors. If the version is out of date, please [create an issue or pull request](https://github.com/Microsoft/vcpkg) on the vcpkg repository.
-
-#  Commercial support
-
-Are you using BT.CPP in your commercial product, and do you need technical support / consulting?
-You can contact the primary author, **dfaconti@aurynrobotics.com**, to discuss your use case and needs.
-
-## Previous version
-
-Version 3.8 of the software can be found in the branch
-[v3.8](https://github.com/BehaviorTree/BehaviorTree.CPP/tree/v3.8).
-
-That branch might receive bug fixes, but the new features will be implemented
-only in the master branch.
+For the original C++ library: are you using BT.CPP in your commercial product, and do you need
+technical support / consulting? You can contact the primary author,
+**dfaconti@aurynrobotics.com**, to discuss your use case and needs.
 
 # Star History
 
