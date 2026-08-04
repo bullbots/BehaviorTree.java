@@ -42,6 +42,9 @@ repos:
     hooks:
       - id: clang-format
         args: ['-fallback-style=none', '-i']
+        # clang-format's default file matching also picks up .java files, but the java/
+        # port follows ordinary Java formatting conventions, not clang-format's.
+        exclude: ^java/
 
   # C++ static analysis via clangd-21 (skips if not installed)
   - repo: local
