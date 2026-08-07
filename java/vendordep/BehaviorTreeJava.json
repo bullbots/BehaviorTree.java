@@ -1,0 +1,25 @@
+{
+  "fileName": "BehaviorTreeJava.json",
+  "name": "BehaviorTree.CPP Java Port",
+  "version": "4.10.0",
+  "uuid": "c02295ad-04bb-4915-9998-22973065d9b1",
+  "frcYear": "2026",
+  "mavenUrls": [
+    "REPLACE_WITH_YOUR_MAVEN_REPO_URL"
+  ],
+  "jsonUrl": "REPLACE_WITH_YOUR_HOSTED_JSON_URL/BehaviorTreeJava.json",
+  "javaDependencies": [
+    {
+      "groupId": "org.behaviortree",
+      "artifactId": "behaviortree-core",
+      "version": "4.10.0"
+    },
+    {
+      "groupId": "org.behaviortree",
+      "artifactId": "behaviortree-wpilib",
+      "version": "4.10.0"
+    }
+  ],
+  "jniDependencies": [],
+  "cppDependencies": []
+}
