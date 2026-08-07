@@ -1,0 +1,10 @@
+<root BTCPP_format="4" main_tree_to_execute="Auto">
+  <BehaviorTree ID="Auto">
+    <Sequence>
+      <Intake/>
+      <Timeout msec="4000">
+        <Shoot/>
+      </Timeout>
+    </Sequence>
+  </BehaviorTree>
+</root>
