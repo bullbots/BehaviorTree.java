@@ -42,9 +42,11 @@ repos:
     hooks:
       - id: clang-format
         args: ['-fallback-style=none', '-i']
-        # clang-format's default file matching also picks up .java files, but the java/
-        # port follows ordinary Java formatting conventions, not clang-format's.
-        exclude: ^java/
+        # clang-format's default file matching also picks up .java files, but this repo's
+        # Java code (java/, examples/wpilib-robot-example/) follows ordinary Java
+        # formatting conventions, not clang-format's. Restrict to what we actually want
+        # clang-format to touch, rather than excluding each Java directory by path.
+        types_or: [c++, c, c#, cuda, objective-c, proto]
 
   # C++ static analysis via clangd-21 (skips if not installed)
   - repo: local

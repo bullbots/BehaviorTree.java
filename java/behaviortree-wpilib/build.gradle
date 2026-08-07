@@ -1,0 +1,29 @@
+description = 'WPILib / FRC command-based integration for behaviortree-core: Command <-> TreeNode adapters and NetworkTables live monitoring.'
+
+def wpilibVersion = project.findProperty('wpilibVersion')
+
+repositories {
+    maven { url = uri('https://frcmaven.wpi.edu/artifactory/release/') }
+}
+
+dependencies {
+    api project(':behaviortree-core')
+
+    // These are resolved from frcmaven.wpi.edu and require the WPILib version
+    // installed in your robot project (see gradle.properties: wpilibVersion).
+    // A robot project applying GradleRIO already provides these on its classpath;
+    // they are declared as `compileOnly` here so this module doesn't force a
+    // specific WPILib version on consumers - the vendordep mechanism handles that.
+    compileOnly "edu.wpi.first.wpilibj:wpilibj-java:${wpilibVersion}"
+    compileOnly "edu.wpi.first.wpiutil:wpiutil-java:${wpilibVersion}"
+    compileOnly "edu.wpi.first.wpimath:wpimath-java:${wpilibVersion}"
+    compileOnly "edu.wpi.first.ntcore:ntcore-java:${wpilibVersion}"
+
+    testImplementation platform('org.junit:junit-bom:5.11.3')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    testImplementation "edu.wpi.first.wpilibj:wpilibj-java:${wpilibVersion}"
+    testImplementation "edu.wpi.first.wpiutil:wpiutil-java:${wpilibVersion}"
+    testImplementation "edu.wpi.first.wpimath:wpimath-java:${wpilibVersion}"
+    testImplementation "edu.wpi.first.ntcore:ntcore-java:${wpilibVersion}"
+}

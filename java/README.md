@@ -83,8 +83,17 @@ match the WPILib release your robot project uses, then:
 
 ## Using it in a robot project
 
+**Quickest way to get started, no Maven hosting required:** point your robot project's
+`settings.gradle` at this `java/` directory with Gradle's `includeBuild`, and add
+`behaviortree-core`/`behaviortree-wpilib` to your `dependencies { }` block - full walkthrough and
+a complete reference project in
+[`examples/wpilib-robot-example`](../examples/wpilib-robot-example).
+
+For a reusable dependency across multiple robot repos instead, publish it and use the vendordep
+manifest:
+
 The `vendordep/BehaviorTreeJava.json` file is a normal WPILib vendordep manifest. To actually use
-it from a robot project:
+it from a robot project this way:
 
 1. Publish `behaviortree-core` and `behaviortree-wpilib` to a Maven repository your robot project
    can reach (GitHub Packages, a self-hosted Artifactory/Nexus, JitPack, or Maven Central all
