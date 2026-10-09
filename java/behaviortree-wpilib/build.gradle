@@ -14,7 +14,10 @@ dependencies {
     // A robot project applying GradleRIO already provides these on its classpath;
     // they are declared as `compileOnly` here so this module doesn't force a
     // specific WPILib version on consumers - the vendordep mechanism handles that.
+    // In WPILib 2026, edu.wpi.first.wpilibj2.* (command-based) was split out of
+    // wpilibj-java into its own artifact, wpilibNewCommands-java.
     compileOnly "edu.wpi.first.wpilibj:wpilibj-java:${wpilibVersion}"
+    compileOnly "edu.wpi.first.wpilibNewCommands:wpilibNewCommands-java:${wpilibVersion}"
     compileOnly "edu.wpi.first.wpiutil:wpiutil-java:${wpilibVersion}"
     compileOnly "edu.wpi.first.wpimath:wpimath-java:${wpilibVersion}"
     compileOnly "edu.wpi.first.ntcore:ntcore-java:${wpilibVersion}"
@@ -23,6 +26,7 @@ dependencies {
     testImplementation 'org.junit.jupiter:junit-jupiter'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     testImplementation "edu.wpi.first.wpilibj:wpilibj-java:${wpilibVersion}"
+    testImplementation "edu.wpi.first.wpilibNewCommands:wpilibNewCommands-java:${wpilibVersion}"
     testImplementation "edu.wpi.first.wpiutil:wpiutil-java:${wpilibVersion}"
     testImplementation "edu.wpi.first.wpimath:wpimath-java:${wpilibVersion}"
     testImplementation "edu.wpi.first.ntcore:ntcore-java:${wpilibVersion}"
