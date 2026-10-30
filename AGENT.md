@@ -296,6 +296,10 @@ export default {
 
 - Repo root = upstream C++ BehaviorTree.CPP checkout; **never touch paths outside `docs/learn`
   and `AGENT.md`** (except reading them). Past mistake guard: do not `git add -A`.
+- **The repo moved**: GitHub now says the canonical remote is
+  `https://github.com/bullbots/BehaviorTree.java.git` (the old `snowdriftdev` URL still redirects,
+  but update the remote when convenient: `git remote set-url origin https://github.com/bullbots/BehaviorTree.java.git`).
+  First working commit landed on `master` as `eee5931` (21 files, docs/learn shell+engine+workspace).
 - Expected branches/remote: user pushed from mono worktree before; ask only if push fails.
 - Commit before push at the end of each working session with the pattern:
   `git add AGENT.md docs/learn && git commit -m "learn: …"` → `git push`.
