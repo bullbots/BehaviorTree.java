@@ -6,7 +6,7 @@ import { RuntimeError2 } from './clock.js';
 /* ------------- Lexer ------------- */
 const OPS = [
   ':=','==','!=','<=','>=','&&','||','+=','-=','*=','/=','..',
-  '+','-','*','/','%','(',')','[',']',',',';','?','!','~','<','>','=','&','|','^',':',
+  '+','-','*','/','(',')','[',']',',',';','?','!','~','<','>','=','&','|','^',':',
 ];
 
 function tokenize(src) {
@@ -80,8 +80,9 @@ export function parseScriptTree(src) {
     else if (t.type === 'str') left = { k: 'lit', v: t.val };
     else if (t.type === 'name') {
       const lower = t.val.toLowerCase();
-      if (lower === 'true') left = { k: 'lit', v: true };
-      else if (lower === 'false') left = { k: 'lit', v: false };
+      // Java parity: boolean literals are doubles (1.0 / 0.0) — scripts have no bool values
+      if (lower === 'true') left = { k: 'lit', v: 1 };
+      else if (lower === 'false') left = { k: 'lit', v: 0 };
       else left = { k: 'name', v: t.val };
     } else if (t.type === 'op') {
       if (t.val === '(') {
@@ -226,12 +227,14 @@ function compareValue(e, ctx) {
   const b = evalExpr(e.b, ctx);
   return { val: b, res: compare(e.op, inner.val, b) };
 }
+/* Java parity: comparisons evaluate to 1.0 (true) or 0.0 (false) — never a real boolean */
+const asNum = (r) => (r ? 1 : 0);
 
 function evalExpr(e, ctx) {
   switch (e.k) {
     case 'lit': return e.v;
-    case 'cmp': return compareValue(e, ctx).res;
-    case 'cmpx': return compareValue(e, ctx).res;
+    case 'cmp': return asNum(compareValue(e, ctx).res);
+    case 'cmpx': return asNum(compareValue(e, ctx).res);
     case 'name': {
       let v;
       try { v = ctx.getVar(e.v); } catch { v = undefined; }
@@ -245,7 +248,7 @@ function evalExpr(e, ctx) {
     case 'un': {
       const v = evalExpr(e.a, ctx);
       if (e.op === '-') return -toNumber(v, { op: '-' });
-      if (e.op === '!') return !toBool(v);
+      if (e.op === '!') return toBool(v) ? 0 : 1;
       // ~ bitwise complement on 64-bit value (range-checked like upstream)
       const n = toNumber(v, { op: '~' });
       if (n < -Math.pow(2, 63) || n >= Math.pow(2, 64)) throw RuntimeError2('~ operand out of range');
@@ -257,17 +260,18 @@ function evalExpr(e, ctx) {
     }
     case 'bin': {
       const op = e.op;
-      if (op === '&&') { const a = evalExpr(e.a, ctx); return toBool(a) ? evalExpr(e.b, ctx) : a; }
-      if (op === '||') { const a = evalExpr(e.a, ctx); return toBool(a) ? a : evalExpr(e.b, ctx); }
+      // Java parity (ExprBinary): BOTH operands are evaluated, and logic ops yield 1.0/0.0 doubles
+      if (op === '&&') { const a = evalExpr(e.a, ctx); const b = evalExpr(e.b, ctx); return (toBool(a) && toBool(b)) ? 1 : 0; }
+      if (op === '||') { const a = evalExpr(e.a, ctx); const b = evalExpr(e.b, ctx); return (toBool(a) || toBool(b)) ? 1 : 0; }
       if (ASSIGN_OPS.includes(op)) {
         if (e.a.k !== 'name') throw RuntimeError2('Assignment left operand must be a blackboard entry name');
         const name = e.a.v;
         const rhs = evalExpr(e.b, ctx);
-        return assign(op, name, rhs, ctx);
+        return assign(op, name, rhs, ctx, e.b);
       }
       if (['==','!=','<','>','<=','>='].includes(op)) {
         const a = evalExpr(e.a, ctx), b = evalExpr(e.b, ctx);
-        return compare(op, a, b);
+        return asNum(compare(op, a, b));
       }
       const a = evalExpr(e.a, ctx), b = evalExpr(e.b, ctx);
       if (op === '..') {
@@ -288,7 +292,6 @@ function evalExpr(e, ctx) {
         case '-': return na - nb;
         case '*': return na * nb;
         case '/': return na / nb;
-        case '%': return na % nb;
         case '&': return na & nb;
         case '|': return na | nb;
         case '^': return na ^ nb;
@@ -304,11 +307,22 @@ function isNumable(v) {
   return false;
 }
 
-function assign(op, name, rhs, ctx) {
+/* Java parity: the TYPE a script-created entry gets on its first write.
+ *  - every script number is a Java Double (ExprLiteral casts integers to double) → 'double'
+ *  - enum bare names resolve through the registry (Map<String,Integer>) → 'int'
+ *  - strings become ExprLiteral(String) → 'string' (locked, like any Java first write) */
+function declaredTypeOf(rhsAst, value, ctx) {
+  if (rhsAst && rhsAst.k === 'name' && ctx && ctx.enums && ctx.enums[rhsAst.v] !== undefined) return 'int';
+  if (typeof value === 'number') return 'double';
+  if (typeof value === 'string') return 'string';
+  return 'any';
+}
+
+function assign(op, name, rhs, ctx, rhsAst) {
   const root = name.startsWith('@');
   const bare = root ? name.slice(1) : name;
   if (op === ':=') {
-    ctx.setVar(bare, rhs, root, /*create*/ true);
+    ctx.setVar(bare, rhs, root, /*create*/ true, declaredTypeOf(rhsAst, rhs, ctx));
     return rhs;
   }
   if (op === '=') {
@@ -346,11 +360,11 @@ export function parseScript(src) {
           const bb = root ? blackboard.rootBlackboard() : blackboard;
           return findEntry(bb, name) !== null;
         },
-        setVar(name, value, root, create) {
+        setVar(name, value, root, create, createType) {
           const bb = root ? blackboard.rootBlackboard() : blackboard;
           let e = findEntry(bb, name);
           if (e) { setEntry(bb, e, value); return; }
-          if (create) { bb.set(name, value); }
+          if (create) { bb.createEntry(name, createType || 'any', value); }
           else throw RuntimeError2(`Variable not found: ${name}`);
         },
       };

@@ -65,6 +65,11 @@ export class TreeNode {
       const bb = this.config.blackboard;
       if (!bb) throw RuntimeError2("getInput(): trying to access an invalid Blackboard");
       const key2 = raw === '=' || raw === '{=}' ? key : stripBlackboardPointer(raw);
+      const info = this.manifestPorts()[key];
+      if (info && info.type && info.type !== 'any' && !bb.getEntry(key2)) {
+        // JavaTreeNode.getLockedPortContent: the entry is declared with the port's type on first use
+        bb.createEntry(key2, info.type);
+      }
       const r = bb.tryGet(key2, type || 'any');
       if (!r.present) throw RuntimeError2(`getInput() failed because it was unable to find the key [${key}] remapped to [${key2}]`);
       return r.value;
@@ -1011,7 +1016,8 @@ class CommandActionLike extends StatefulActionNode {
   constructor(name, cfg, def) { super(name, name, cfg); this.def = def; this.command = null; }
   manifestPorts() { return manifestOfDef(this.def); }
   onStart() {
-    this.command = this.def.supplier ? this.def.supplier(ctxOf(this)) : {};
+    if (!this.def.supplier) throw LogicError(`Command action node [${this.nodeName}] has no supplier() in its def — a 'command' node def must build a WPILib-Command-like object (mirrors CommandActionNode's Supplier<Command>)`);
+    this.command = this.def.supplier(ctxOf(this));
     this.command._scheduled = true;
     return STATUS.RUNNING;
   }

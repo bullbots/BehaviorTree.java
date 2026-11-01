@@ -78,8 +78,19 @@ export class Blackboard {
 
   _bump(entry) { entry.seq = ++this.seqCounter; entry.stamp = simClock.ms; }
 
-  /** getEntry: exact lookup on this blackboard only ('@' handled by caller) */
-  getEntry(key) { return this.entries.get(key) || null; }
+  /** Java Blackboard.getEntry parity: '@' escape, local entry, subtree remap → parent,
+   *  then autoRemapping → parent. Returns null when nothing was found anywhere. */
+  getEntry(key) {
+    if (key.startsWith('@')) return this.rootBlackboard().getEntry(key.slice(1));
+    const local = this.entries.get(key);
+    if (local) return local;
+    if (this.parent) {
+      const remapped = this.remaps.get(key);
+      if (remapped) return this.parent.getEntry(remapped);
+      if (this.autoRemapping && !key.startsWith('_')) return this.parent.getEntry(key);
+    }
+    return null;
+  }
 
   _findEntry(key) {
     let b = this;
@@ -122,21 +133,33 @@ export class Blackboard {
     this.apply(e, key, value);
   }
   apply(e, key, value) {
-    if (e.locked && e.type) {
-      if (typeof value === 'number' && ['int','long'].includes(e.type) && !Number.isInteger(value)) {
-        // Safe numeric widening (NumericCast.java): a double that doesn't fit the int entry
-        // widens the entry to double instead of throwing (int → double is the one allowed change).
-        e.type = 'double';
-      } else if (!compatible(e.type, value)) {
-        throw LogicError(`Blackboard entry "${key}" was declared with type [${e.type}], but you are trying to write ${describeType(value)}. Once declared, the type of a port shall not change.`);
+    // Java parity (Blackboard.set): entries are strongly typed from the first written value.
+    //   - string values do NOT lock the type (Java's `new TypeInfo()` == ANY)
+    //   - a Number into a numeric entry is accepted when NumericCast.isSafe(previousType, n)
+    //   - String values are parsed into the declared type; failure → "type shall not change"
+    if (e.locked && e.type && e.type !== 'any' && value !== undefined) {
+      const prevT = e.type;
+      const newT = typeof value === 'number' ? (Number.isInteger(value) ? 'int' : 'double')
+        : typeof value === 'boolean' ? 'bool'
+        : typeof value === 'string' ? 'string'
+        : 'any';
+      let parseFailed = false;
+      if (typeof value === 'string' && prevT !== 'string') {
+        try { value = CONV[prevT].parse(value); } catch { parseFailed = true; }
+      }
+      if (parseFailed) {
+        throw LogicError(`Blackboard::set(${key}): once declared, the type of a port shall not change. Previously declared type [${prevT}], can't parse the given value as [${prevT}].`);
+      } else if (newT !== prevT && !ASSIGNABLE(prevT, newT, value)) {
+        throw LogicError(`Blackboard::set(${key}): once declared, the type of a port shall not change. Previously declared type [${prevT}], current type [${value === null || value === undefined ? 'null' : newT}]`);
       }
     }
-    if (e.type == null) {
+    if (!e.locked) {
+      // Java Blackboard.set adoption path: the entry locks to the runtime class of the value
       if (typeof value === 'number') e.type = Number.isInteger(value) ? 'int' : 'double';
       else if (typeof value === 'boolean') e.type = 'bool';
-      else if (typeof value === 'string') e.type = 'string';
+      else if (typeof value === 'string') e.type = 'string'; // Java: String.class locks too
       else if (value && typeof value === 'object') e.type = 'any';
-      e.locked = true; // (Java) the entry locks on its first typed write
+      if (e.type && e.type !== 'any') e.locked = true;
     }
     if (typeof value === 'string' && e.type != null && e.type !== 'string' && e.type !== 'any') {
       value = CONV[e.type]?.parse ? CONV[e.type].parse(value) : value;
@@ -154,15 +177,32 @@ export class Blackboard {
   get(key, type) { return this.typedGet(key, type); }
   tryGet(key, type) { try { return { present: true, value: this.typedGet(key, type) }; } catch { return { present: false }; } }
 
-  /** Declares an entry with a fixed port type (TreeNodesModel / manifest-driven). */
+  /** Declares an entry with a fixed port type — Java `createEntryImpl` parity:
+   *  existing entry → type-compatibility check; subtree remap / autoRemap → delegation to the
+   *  parent blackboard; otherwise created locally with the declared type. */
   createEntry(key, portType, defaultValue) {
     if (key.startsWith('@')) { this.rootBlackboard().createEntry(key.slice(1), portType, defaultValue); return; }
     let e = this.entries.get(key);
-    if (!e) {
-      e = { key, value: undefined, type: portType, declared: true, locked: true, seq: 0, stamp: 0 };
-      this.entries.set(key, e);
-    } else if (!e.declared) { e.type = portType; e.declared = true; e.locked = true; }
-    if (defaultValue !== undefined && e.value === undefined) {
+    if (e) {
+      const prev = e.type;
+      const strong = prev && prev !== 'any';
+      const declaring = portType && portType !== 'any';
+      if (strong && declaring && prev !== portType) {
+        throw LogicError(`Blackboard entry [${key}]: once declared, the type of a port shall not change. Previously declared type [${prev}], current type [${portType}]`);
+      }
+      if (!e.declared && portType) { e.type = portType; e.declared = true; if (portType !== 'any') e.locked = true; }
+      if (defaultValue !== undefined && e.value === undefined) {
+        e.value = typeof defaultValue === 'string' && portType && portType !== 'string' && portType !== 'any'
+          ? CONV[portType].parse(defaultValue) : defaultValue;
+      }
+      this._bump(e);
+      return e;
+    }
+    if (this.remaps.has(key) && this.parent) return this.parent.createEntry(this.remaps.get(key), portType, defaultValue);
+    if (this.autoRemapping && !key.startsWith('_') && this.parent) return this.parent.createEntry(key, portType, defaultValue);
+    e = { key, value: undefined, type: portType, declared: true, locked: portType !== 'any', seq: 0, stamp: 0 };
+    this.entries.set(key, e);
+    if (defaultValue !== undefined) {
       e.value = typeof defaultValue === 'string' && portType && portType !== 'string' && portType !== 'any'
         ? CONV[portType].parse(defaultValue) : defaultValue;
     }
@@ -176,6 +216,19 @@ export class Blackboard {
   }
   keys() { return [...this.entries.keys()]; }
   anyEntries() { return [...this.entries.values()].filter((e) => e.value !== undefined); }
+}
+
+/** Java parity for "can I overwrite this strongly-typed entry?": subclassing collapsed to our
+ *  small type set plus NumericCast.isSafe for numbers. */
+function ASSIGNABLE(prevT, newT, value) {
+  if (prevT === newT) return true;
+  if (prevT === 'any') return true;
+  const numT = (v) => ['int','long','double','float'].includes(v);
+  if (numT(prevT) && typeof value === 'number') {
+    if (['int','long'].includes(prevT)) return value === Math.floor(value); // NumericCast.isSafe(int, n)
+    return true; // double/float accepts any finite number
+  }
+  return false;
 }
 
 function compatible(type, v) {

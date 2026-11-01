@@ -149,6 +149,18 @@ export function renderExercise(body, item, finish, page) {
     }
   }
 
+  /* per-tick highlight: nodes whose status/lastReturn changed since the previous rendered tick */
+  let prevByUid = new Map();
+  function touchedUids(snap) {
+    const touched = new Set();
+    for (const n of snap) {
+      const prev = prevByUid.get(n.uid);
+      if (prev && (prev.status !== n.status || prev.lastReturn !== n.lastReturn)) touched.add(n.uid);
+      prevByUid.set(n.uid, { status: n.status, lastReturn: n.lastReturn });
+    }
+    return touched;
+  }
+
   function renderAll(res) {
     if (!runner) return;
     const snap = runner.snapshot();
@@ -195,8 +207,10 @@ export function renderExercise(body, item, finish, page) {
       treeWrap.appendChild(t);
     }
     if (res) {
-      const hi = document.getElementById('tn-' + (runner._lastTouchedUid ?? ''));
-      if (hi) { hi.classList.add('ticked'); setTimeout(() => hi.classList.remove('ticked'), 350); }
+      for (const uid of touchedUids(snap)) {
+        const hi = document.getElementById('tn-' + uid);
+        if (hi) { hi.classList.add('ticked'); setTimeout(() => hi.classList.remove('ticked'), 350); }
+      }
     }
   }
 
@@ -240,6 +254,16 @@ export function renderExercise(body, item, finish, page) {
   }
 
   /* -------- control wiring -------- */
+  function stopLoop() {
+    if (interval) { clearInterval(interval); interval = null; if (runBtn) runBtn.textContent = '▶ Run'; }
+  }
+
+  runBtn.onclick = () => {
+    if (interval) { stopLoop(); return; }
+    makeRunner();
+    startLoop();
+    runBtn.textContent = '⏸ Pause';
+  };
   function startLoop() {
     stopLoop();
     if (!runner) makeRunner();
@@ -254,15 +278,6 @@ export function renderExercise(body, item, finish, page) {
       } else stopLoop();
     }, ms);
   }
-  function stopLoop() { if (interval) { clearInterval(interval); interval = null; } }
-
-  runBtn.onclick = () => {
-    if (interval) { stopLoop(); runBtn.textContent = '▶ Run'; return; }
-    makeRunner();
-    runBtn.textContent = '⏸ Pause';
-    startLoopManual();
-  };
-  function startLoopManual() { startLoop(); runBtn.textContent = '⏸ Pause'; }
 
   stepBtn.onclick = () => { const r = tickOnce(); if (r) renderAll(r); };
   resetBtn.onclick = () => { stopLoop(); makeRunner(); renderAll({ simMs: 0, tickIndex: 0 }); runBtn.textContent = '▶ Run'; };
@@ -294,7 +309,11 @@ export function renderExercise(body, item, finish, page) {
     let allPass = true;
     for (const v of cfg.validators || []) {
       let ok, msg = '';
-      try { const answer = v.check(api); ok = answer === true || (answer && answer.pass === true); if (answer !== true && answer?.message) msg = answer.message; }
+      try {
+        const answer = v.check(api);
+        ok = answer === true || (answer && typeof answer === 'object' && answer.pass === true);
+        if (!ok) msg = typeof answer === 'string' ? answer : (answer?.message || '');
+      }
       catch (e) { ok = false; msg = e._msg || e.message; }
       if (ok) results.push(`✔ ${v.label}`);
       else { allPass = false; results.push(`✘ ${v.label}${msg ? ' — ' + msg : ''}`); }

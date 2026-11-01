@@ -232,6 +232,6 @@ function renderUnitComplete(unit) {
   setTimeout(() => { done.style.transition = 'opacity .8s'; done.style.opacity = '0'; setTimeout(() => done.remove(), 900); }, 4200);
 }
 
-function renderNotFound(page) {
+export function renderNotFound(page) {
   page.innerHTML = '<h1 class="lesson-title">Not found</h1><p>This page does not exist — <a href="#/">back home</a>.</p>';
 }

@@ -20,7 +20,8 @@ export const store = {
   loadData(key) { return state.data?.[key]; },
   unitPercent(uid, unit) {
     let total = 0, done = 0;
-    for (const l of unit().lessons) for (let i = 0; i < l.items.length; i++) {
+    const us = unit && unit.lessons ? unit : getUnit(Number(uid));
+    for (const l of (us ? us.lessons : [])) for (let i = 0; i < l.items.length; i++) {
       total++;
       if (this.isDone(`${uid}/${l.id}/${i}`)) done++;
     }

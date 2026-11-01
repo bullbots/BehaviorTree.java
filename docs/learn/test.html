@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BehaviorTree.java Academy — engine checks</title>
+<link rel="stylesheet" href="css/theme.css">
+<style>
+  body { background: var(--bg, #10171d); color: #dfe7ec; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; padding: 34px; }
+  h1 { font-family: system-ui, sans-serif; font-size: 19px; margin: 0 0 6px; }
+  .sub { color: #7f97a3; font-size: 12.5px; margin-bottom: 22px; }
+  .banner { display: inline-block; padding: 8px 14px; border-radius: 8px; font-family: system-ui, sans-serif; font-weight: 700; margin-bottom: 20px; }
+  .pass { background: #173f36; color: #40d6bb; border: 1px solid #2b7f70; }
+  .fail { background: #4a1d1e; color: #ff9b9b; border: 1px solid #8a4344; }
+  pre { font-size: 13px; line-height: 1.65; white-space: pre-wrap; }
+  a { color: #f65a5b; text-decoration: none; font-family: system-ui, sans-serif; font-size: 13px; }
+</style>
+</head>
+<body>
+  <h1>BehaviorTree.java — engine fidelity suite</h1>
+  <div class="sub">The same cases users never see: they mirror java/behaviortree-core behavior (statuses, control flow, decorators, blackboard typing, script language, subtree remaps, WPILib-style command mocks).</div>
+  <div id="banner" class="banner pass">running…</div>
+  <pre id="log">…</pre>
+  <p><a href="index.html">← back to the course</a></p>
+  <script type="module">
+    import { runTests } from './js/engine/tests.mjs';
+    const { passed, failed, log } = await runTests();
+    document.getElementById('log').textContent = log.join('\n');
+    const b = document.getElementById('banner');
+    b.className = 'banner ' + (failed ? 'fail' : 'pass');
+    b.textContent = failed ? `✘ ${passed} passed — ${failed} failed` : `✔ ${passed}/${passed + failed} checks pass`;
+  </script>
+</body>
+</html>

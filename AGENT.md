@@ -28,17 +28,15 @@ Java port for WPILib (`java/behaviortree-core` + `java/behaviortree-wpilib` in t
 
 | # | Milestone | State |
 |---|-----------|-------|
-| M1 | Shell (router/sidebar/theme/store/lesson+quiz renderers) | ✅ written, ⚠️ untested in browser |
-| M2 | Engine (blackboard/script/xml/nodes/factory/runner) | ✅ **DONE — smoke green: 37/37 via `node docs/learn/_smoke.mjs`** |
-| M3 | Workspace (editor/visualizer/blackboard/grading) | ✅ written, ⚠️ untested |
-| M4 | Content units 1–9 | ⚠️ **stubs only**: `js/app/units/unit1..9.js` exist with real titles/taglines but EMPTY lessons — site loads its skeleton, no lessons yet. Full content NOT written. |
-| M5 | Test harness page, launcher, README, polish | ❌ |
-| M6 | Commit+push at session end; final sweep | 🔁 ongoing (see Git notes) |
+| M1 | Shell (router/sidebar/theme/store/lesson+quiz renderers) | ✅ **verified in headless Chromium — all 85 item routes render with zero console errors** |
+| M2 | Engine (blackboard/script/xml/nodes/factory/runner) | ✅ 40/40 engine fidelity tests, in node AND browser (`test.html`) |
+| M3 | Workspace (editor/visualizer/blackboard/grading) | ✅ rendered verified; grader logic verified by `_validate.mjs` |
+| M4 | Content units 1–9 | ✅ **COMPLETE — 30 lessons / 85 items / 10 quizzes / 22 exercises; every exercise has a `refXml` reference solution whose own validators pass 22/22** |
+| M5 | Test harness page, launcher, README, polish | ✅ `test.html`, `start.cmd`/`start.sh`, `README.md` |
+| M6 | Final verify + commit/push | 🔁 per-session commits; final sweep = user testing |
 
-✅ **Stale "critical gap" resolved:** unit stub files now exist, so `js/app/curriculum.js` no longer
-crashes on import. Route guard added in `router.js` (a lesson with 0 items falls back to home instead
-of crashing on `items[-1]`). Keep that in mind while authoring: **never ship a lesson with zero
-items** in the final build.
+✅ **Stale "critical gap" resolved** (long ago): unit content lives at `js/app/units/unitN.js`.
+Route guard in `router.js` protects lessons with 0 items; all shipped lessons have items.
 
 ## Repository context (facts that must stay accurate in lessons)
 
@@ -93,8 +91,9 @@ css/workspace.css           — editor/visualizer/blackboard/console styles
 js/app/app.js               — bootstrap: theme toggle, sidebar collapse, hash router hook
 js/app/router.js            — hash parser: #/ | #/:uid | #/:uid/:lessonId(/:idx)
 js/app/store.js             — localStorage progress ({done, data}, unitPercent, lastRoute)
-js/app/curriculum.js        — imports units/unit1..9.js → UNITS, getUnit, getLesson
-                              (stubs exist with empty lessons, real titles/taglines)
+js/app/units/unit1..9.js    — full content: 30 lessons / 85 items (41 reading, 10 java studies,
+                              10 quizzes, 22 exercises each with refXml+validators+hints)
+                              exercises embed node defs + beforeTick mock schedulers
 js/app/sidebar.js           — Codecademy-like sidebar (units, rings, item kinds, progress bars)
 js/app/pages.js             — home hero+unit cards; lesson crumb/progress/title;
                               block renderer hook; quiz renderer (immediate feedback);
@@ -132,102 +131,76 @@ js/engine/factory.js        — Factory + Tree: XML → node instances; BUILT-IN
 js/engine/runner.js         — Runner: builds tree, simClock per run, tick()/runUntilFinished(max)
                               /reset()/snapshot()/tally() (ticksCount increments in executeTick
                               only when actually ticking); globalThis.__btLog collects ctx.log
-_smoke.mjs                  — engine smoke tests, 37/37 passing (run: node docs/learn/_smoke.mjs)
-                              junk/repairable cases all fixed this session; also covers Sleep/anchoring,
-                              command round-trip w/ beforeTick scheduler, DOCTYPE rejection, @key escape,
-                              SyncAction RUNNING rejection, autoremap + explicit SubTree remaps.
-                              ⚠️ TEMPORARY: becomes an in-site test.html harness before commit-out.
+_smoke.mjs                  — node driver that runs js/engine/tests.mjs (the ONE suite)
+js/engine/tests.mjs         — THE engine fidelity suite (40 cases) — shared by node & test.html
+_validate.mjs               — content validator: runs every exercise's refXml through its own
+                              validators (22/22 passing). KEEP both and re-run after content edits.
+test.html                   — in-browser page that runs js/engine/tests.mjs (40/40 in Chromium)
+start.cmd / start.sh        — serve + open browser at :8420
+README.md                   — what it is, how to run the course
 ```
 
 ## Next steps (in order)
 
-1. ~~Run the smoke test and make it pass.~~ ✅ **All 37 tests pass** (`node docs/learn/_smoke.mjs`).
-   Engine fixes made during the first pass (all verified against the Java sources):
-   - `script.js`: `Math.ulp` → `Number.EPSILON`; **Python-style chained comparisons** implemented
-     as dedicated `cmp`/`cmpx` AST nodes (middle operand's VALUE is reused, `2<1<3`=false);
-     bare enum names now resolve when the blackboard lookup fails (`color := RED`).
-   - `nodes.js`: `Math.ulp` removed from Switch's `checkStringEquality`; Timeout/Delay/Sleep
-     anchor their deadline at **tick start** (`simClock.startOfTick()`, new clock API) so
-     `Timeout msec="300"` fails on tick 6 and `Delay delay_msec="200"` ticks the child on
-     tick 4, as the curriculum facts claim; `SyncActionNode`/`ConditionNodeUser`/`ActionNodeUser`
-     do the RUNNING check **outside** the wrapped tick (Java parity → unwrapped `LogicError`),
-     so exercise `'action'` defs must not return RUNNING — use `'stateful'`/`'command'`.
-   - `factory.js`: `querySelector` call on the custom XML tree replaced by `hasDescendant`
-     helper; **SubTree no longer treated as a decorator requiring XML children** (its child is
-     the referenced tree body, built in `instantiateSubtree`).
-   - `blackboard.js`: entries now **lock on the first typed write** (Java `set` parity) and a
-     `double` written to an `int` entry **widens the entry to double** instead of throwing —
-     ⚠️ deliberate deviation: real Java throws LogicError for `1.5` into a declared int entry.
-     See "Sim-only deviations" below before authoring unit 4. Auto-remap **writes now forward
-     creation to the parent blackboard** (Java `createEntryImpl` parity).
-   - `_smoke.mjs`: junk cases repaired as planned (`_while` dummy runners deleted, Delay index
-     assertion kept and now correct = tick 4), plus genuinely broken expectations fixed
-     (two-siblings-under-`<BehaviorTree>` XML wrapped in `<Sequence>`; `DefNode`→`DEF`;
-     `<Slow sec="1">` port typo; `ScriptCondition` now asserts `done==4` + FAILURE;
-     `Precondition` uses the real builtin; stateful tick counter uses `tryGet`). Added new
-     cases: Sleep/anchoring, command node round-trip (beforeTick scheduler pattern), DOCTYPE
-     rejection, `@key` root escape, Sync RUNNING rejection, autoremap.
-2. **Author the full unit content.** Files live at `js/app/units/unitN.js` (NOT
-   `js/content/…` as an earlier note said — the import in curriculum.js is the source of truth).
-   Write them one unit at a time, greppable through the schema at the bottom of this file,
-   and re-run a browser pass after every 2–3 units. Never leave a lesson with zero `items`
-   while committing (router now tolerates it, but the UI shows nothing).
-3. Wire content pages: verify router/sidebar/quiz/workspaces load in a browser:
-   `python -m http.server 8420` inside `docs/learn` → `http://localhost:8420/`.
-   Click through every lesson; fix runtime errors (pages.js nav edge cases still unverified).
-4. Add `docs/learn/start.cmd` + `start.sh` (serve + open browser at chosen port, e.g. 8420) and
-   `docs/learn/README.md` (what it is, how to run, curriculum map, credit note: content teaches
-   `BehaviorTree.java`, the WPILib port of BehaviorTree.CPP).
-5. Turn `_smoke.mjs` into a permanent in-site harness: copy the cases into a page wired to
-   `docs/learn/test.html` (no DOM dependency in the engine — all cases are pure node logic, so
-   they run in the browser too). Users never see it; it doubles as a regression tool after
-   engine tweaks made while authoring exercises.
-6. Final sweep before declaring done: try every unit clickable path, ensure no console errors,
-   no `file://` assumptions (all paths relative), dark-mode text contrast, exercises annotate
-   passing validators. Delete `_smoke.mjs` **only after** step 5 is committed.
-7. **git commit with only the new files** at every session end (had one landed this session —
-   see Git notes), then `git push`.
+1. ~~Run the smoke test and make it pass.~~ ✅ 40/40 (see "Engine fixes" below for the change log).
+2. ~~Author the full unit content.~~ ✅ All 9 units written at `js/app/units/unitN.js`
+   (30 lessons, 85 items: 41 reading, 10 java code-studies, 10 quizzes, 22 exercises — every
+   exercise carries `refXml` + validators verified by `node docs/learn/_validate.mjs`).
+3. ~~Browser verification.~~ ✅ Headless Chromium pass: home + all 85 item routes render error-free;
+   quiz/exercise/reading components render; had three UI bugs to fix along the way (store
+   `unitPercent`, missing `export renderNotFound`, a numeric table cell).
+4. ~~Launcher + README + test.html.~~ ✅
+5. **Remaining (for the user's own test pass):** click through in a normal browser with real
+   progress flow (localStorage), confirm quizzes grade, exercises accept validators, theme
+   toggle + sidebar collapse feel right, and report/dark-mode contrast nits. Engine + grader
+   logic are already machine-verified; what remains is subjective UX only.
+6. If content edits happen later: run `node docs/learn/_smoke.mjs` and `node docs/learn/_validate.mjs`
+   after every content change. `test.html` mirrors the smoke suite in-browser.
 
 ## Known issues / be-suspicious list (from the first draft pass)
 
-Resolved this session (do not re-litigate unless a symptom reappears): factory leftover
-`NODE_KIND`/`kindFor` concerns (checked — not present), blackboard lock semantics (now locked on
-first typed write, see "Engine fixes" above), SubTree decorator misclassification, Switch
-`manifestFor` wiring (works), `_while-interrupts` junk test, `Delay` stake (anchored; tick 4),
-Runner `__btLog` — verified fine via configurable defineProperty per Runner (still stale if two
-Runners coexist in the same page; keep in mind for test.html).
+Resolved across this build session (keep the list closed unless symptoms reappear):
+- store.js `unitPercent` called the unit object as a function → **fixed in headless pass**
+- pages.js `renderNotFound` was not exported → **fixed**
+- workspace.js: pause/stopLoop label restore, duplicated `startLoop`, dead `_lastTouchedUid` gold
+  flash → **fixed** (per-tick highlight now diffs snapshot statuses)
+- u6/u8/u9 exercise design bugs found by `_validate.mjs` → all fixed (missing beforeTick stepping,
+  duplicate node names in tallies, wrong ref arithmetic, `Timeout` one-child rule in capstone)
+- unit6 Parallel table numeric cell crashed mdInline → **fixed**
 
-Still open:
-- `pages.js` — `findRel` wrap logic; ensure prev/next cross-lesson navigation works and that the
-  final "Unit finish →" button is only enabled when sensible. `refreshRoute` was replaced with
-  direct `renderSidebar` call; verify no double-render loops. UnitComplete overlay is
-  `renderMain.appendChild` hack — acceptable but fix id collision if it re-appends.
-- `workspace.js` — `runBtn` pause toggle duplicates `startLoopManual`; the "⏸ Pause" reset of
-  label after stopLoop in `startLoop` never happens (stopLoop leaves the pause label) — add
-  label restore in stopLoop. `renderTree` uses `runner._lastTouchedUid` which is never set —
-  either wire per-tick "touched" uid (nodes expose nodeUid on executeTick) or drop the gold flash.
-- `store.js` — verified: `getUnit` IS used by `lastRoute.get`; no dead import. Behavior when unit
-  is null is guarded (`u || state.data.last.unit === null`). OK.
-- `highlight.js` — script highlight regex may mis-handle `:=` vs `:` and `..`; check rendering
-  of `<Script code="..."/>` inside XML (strings contain single quotes — fine).
-- Virtual `command` nodes: CommandActionLike polls `command._scheduled`; content schedulers must
-  keep commands advancing via `beforeTick: (runner) => ...` (verified pattern, see smoke's
-  `command node round-trip`). No central scheduler exists — that's by design (content-side),
-  document it in unit 9 content.
-- `parseLiteral` treats `status` type inputs loosely; fine for sim.
+Still open (subjective, user-testing tier):
+- Dark-mode contrast nits, perfect quiz retry feel, UnitComplete overlay id-collision when
+  pressed twice quickly (cosmetic; rendering verified once), `highlight.js` script-mode regex
+  edge cases on unusual scripts (only cosmetic).
 
-## Sim-only deviations (document for lessons before claiming "exactly like Java")
+## Fidelity ledger (engine vs the Java port — verified while building units)
 
-1. **Virtual clock**: 1 tick = 50 ms, advanced once per Runner tick BEFORE the tree ticks.
-   Polled Timeout/Delay/Sleep anchor deadlines at `simClock.startOfTick()`, so elapsed time is a
-   whole number of ticks: Timeout 300 → FAILURE on tick 6; Delay 200 → child ticks on tick 4.
-2. **Blackboard widening on write**: writing 1.5 into an entry first written as `1` widens the
-   entry's type to double. In Java/behaviortree-core this throws (NumericCast.isSafe(int, 1.5) is
-   false). Unit 4 should teach "int entries keep their integer-ness; store doubles from the
-   start" and - either change the sim to throw for fidelity, or word the lesson as the sim
-   behaves. Decision needed from user before finalizing unit 4.
-3. **Sync RUNNING check**: virtual `'action'` defs reject RUNNING (Java parity with
-   SyncActionNode) with an unwrapped LogicError — steer exercise authors to `'stateful'`.
+Exact matches (each has a dedicated smoke case):
+- `SyncActionNode` RUNNING rejection (unwrapped LogicError, Java parity), condition RUNNING rejection
+- Timeout/Delay/Sleep **poll-based** semantics with the deterministic 50ms virtual clock anchored at
+  tick start (Timeout 300 → fails tick 6; Delay 200 → child ticks tick 4)
+- Blackboard: strong typing from the FIRST typed write; `NumericCast.isSafe` (2.0 into an int entry
+  OK, 1.5 throws); String values lock as `String`; createEntry strong-type conflicts (TreeNodesModel
+  parity) throw on remap mismatches; `@key` → root escape; subtree remap forwarding for reads AND
+  `createEntry` (Java `getEntry`/`createEntryImpl` parity)
+- Script language: every number is a Double (`x := 1` declares double, Java `ExprLiteral((double)val)`
+  parity), booleans are `1.0/0.0` (no `%` operator — Java has none), `&&`/`||` evaluate BOTH operands,
+  Python-style chained comparisons returning `0.0/1.0` with short-circuit-after-first-fail, `:=` vs
+  `=` (create-vs-existing error), enum registry via bare names (values lock as **int**),
+  compound `+= -= *= /=`, `..` concat, ternary
+- Subtrees: own child blackboard, explicit remaps, `{=}` alias, `_autoremap` read/write-through,
+  `TreeNodesModel` mandatory port errors
+- Sequence variants (restart vs memory-with-halt preserving the cursor), Parallel thresholds,
+  all decorators incl. poll-based anchoring, Precondition, Loop queues, Switch2..6 string→int→real
+  epsilon compare
+
+Deliberate simplifications (do NOT claim otherwise in lessons):
+1. **Virtual clock**: 1 tick = 50 ms, advanced before the tree tick. Java uses `Timer`/nanoTime —
+   the *sampling* semantics (checked once per tick) match; wall-clock jitter doesn't exist by design.
+2. Pre-declaration of port-typed entries happens on first pointer READ (`getInput`) and
+   Java `getLockedPortContent` also covers more paths (setOutput uses plain set in both).
+3. Error message strings are close-but-not-identical to Java's; the KINDS match (RuntimeError /
+   LogicError / NodeExecutionError / XMLParseError).
 
 ## Curriculum plan (approved; content to write in M4)
 
@@ -307,17 +280,20 @@ export default {
 
 ### Engine facts to lean on while authoring exercises
 
-- 1 tick = **50 simulated ms** (`simClock`); `Timeout msec="300"` fails on tick 6 (300ms); visual
-  clock label shows `robot @ X.Xs`. `Run` mode ticks on an interval (default 220ms real time).
-- `Delay delay_msec="200"` ticks its child exactly on tick 4 (anchored at tick-start; verified
-  by smoke). `Sleep msec="500"` → SUCCESS the first tick where elapsed ≥ 500ms.
+- 1 tick = **50 simulated ms**; `Timeout msec="300"` fails on tick 6; `Delay delay_msec="200"`
+  ticks its child on tick 4 (all anchored at tick-start; verified by smoke).
+- Timing of a `timedCmd` mock: occupies `L+1` ticks (1 onStart + L update polls) for `L` ticks
+  of its `ms` port.
 - Mock robot: content supplies it inside `nodes` definitions; use `ctx.log('[Drive] moving…')`.
+- Command-mock lifecycle needs a `beforeTick` that steps a module `scheduler` — several unit
+  files carry the pattern verbatim; copy it or use self-ticking `stateful` mocks.
 - All blackboard values visible in inspector, `@key` shows under root.
-- Keep exercise node registries small and readable; prefer `type:'command'` for `Intake`-like
-  mocks so lessons 9 can teach the identical `CommandActionNode` pattern.
-- Validators: prefer `ticksOf('Name')` over fragile order assertions.
-- Chained comparisons are Python-style in the sim script engine (`2<1<3` = false); enums resolve
-  as bare names; `@key` writes go to the ROOT blackboard (all verified by smoke cases).
+- Validators: prefer `ticksOf`/`lastReturnOf` (statuses RESET when parents complete — `statusOf`
+  shows IDLE for finished children after the run; `lastReturnOf` is the reliable one). Sum tallies
+  by name when leaves share a registration name.
+- Chained comparisons are Python-style returning doubles; scripts never lock booleans (they have
+  none); enums lock as int; script numbers lock as double (Java parity).
+- `Timeout`/`Delay`/`Retry`/... all have EXACTLY ONE child — wrap pairs in a `<Sequence>`.
 
 ## Git notes
 
@@ -354,5 +330,6 @@ export default {
   `python http.server` + browser-based `test.html` harness).
 - User devices may continue work; keep everything self-contained and relative paths only.
 
-— end of handoff v2 (smoke green · engine fidelity fixes landed · unit stubs in place ·
-full content authoring is the next session's main task).
+— end of handoff v3 (all 9 units authored; 22/22 exercise solutions validated; 40/40 engine
+fidelity; 85/85 routes render error-free in headless Chromium; test.html + launchers + README
+shipped; only subjective UX testing remains for the user).
