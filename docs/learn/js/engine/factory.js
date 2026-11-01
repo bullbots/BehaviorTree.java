@@ -56,6 +56,11 @@ function builtinRegistry() {
 
 function bump(el) { return [...el.children].filter((c) => c.nodeType === 1 && c.tagName !== 'TreeNodesModel'); }
 
+/** querySelector-ish helper (the minimal XML parser has no DOM traversal API). */
+function hasDescendant(el, tagName) {
+  return [...el.children].some((c) => c.tagName === tagName || hasDescendant(c, tagName));
+}
+
 export class Factory {
   constructor(opts = {}) {
     this.builtins = builtinRegistry();
@@ -72,7 +77,7 @@ export class Factory {
     try { rootEl = parseXmlDoc(xmlText); }
     catch (e) { throw new ParseError(`Invalid XML: ${e.message}`); }
     if (rootEl.tagName !== 'root') throw new ParseError('The XML must have a <root> top element.');
-    if (rootEl.querySelector('include')) throw new ParseError('<include> of external files is not available in the simulator. Put every <BehaviorTree> into the same document instead.');
+    if (hasDescendant(rootEl, 'include')) throw new ParseError('<include> of external files is not available in the simulator. Put every <BehaviorTree> into the same document instead.');
 
     for (const t of [...rootEl.children].filter((c) => c.tagName === 'BehaviorTree')) {
       const id = t.getAttribute('ID');
@@ -187,8 +192,13 @@ export class Factory {
     allNames.push(nodeName);
 
     // ---- recurse into children by node kind ----
+    // (SubTree is a decorator subclass, but its child is the referenced subtree body, already
+    // attached by instantiateSubtree — the XML element itself must have no children.)
     const childCtx = { blackboard: cfg.blackboard, path: node.config.path };
-    if (node instanceof N.ControlNode) {
+    if (isSubtree) {
+      const kids = bump(el);
+      if (kids.length) throw new ParseError(`<SubTree ID="${registrationId}"> must not have children.`);
+    } else if (node instanceof N.ControlNode) {
       const kids = bump(el);
       if (!kids.length) throw new ParseError(`Control node <${registrationId}> needs children.`);
       for (const c of kids) node.addChild(this.buildNode(c, childCtx, allNames));

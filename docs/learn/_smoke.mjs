@@ -53,23 +53,23 @@ ok('compound +=', () => {
 console.log('== control nodes ==');
 ok('Sequence restarts from 0 after FAILURE', () => {
   let calls = { a: 0, b: 0 };
-  const nodes = {
-    A: { type: 'action', tick: (ctx) => (calls.a++, nodes.Halt.fail ? 'FAILURE' : 'SUCCESS') },
-    B: { type: 'action', tick: (ctx) => (calls.b++, 'SUCCESS') },
-  };
   const H = { fail: true };
-  nodes.A.tick = (ctx) => { calls.a++; return H.fail ? 'FAILURE' : 'SUCCESS'; };
-  nodes.B.tick = (ctx) => { calls.b++; return 'SUCCESS'; };
-  const r = new Runner({ xml: `<root><BehaviorTree ID=\"T\"><Sequence><A/><B/></Sequence></BehaviorTree></root>`, nodes });
-  r.runUntilFinished();
+  const nodes = {
+    A: { type: 'action', tick: () => { calls.a++; return H.fail ? 'FAILURE' : 'SUCCESS'; } },
+    B: { type: 'action', tick: () => (calls.b++, 'SUCCESS') },
+  };
+  const r = new Runner({ xml: `<root><BehaviorTree ID="T"><Sequence><A/><B/></Sequence></BehaviorTree></root>`, nodes });
+  r.tick();          // A fails → Sequence FAILURE, restarts at index 0
+  H.fail = false;
+  r.tick();          // A succeeds, then B — no child skipped
   eq(calls.a, 2); eq(calls.b, 1);
 });
 ok('Fallback succeeds on later child', () => {
   const nodes = {
-    F: { type: 'action', tick: () => 'FAILURE' },
+    F: { type: 'condition', tick: () => 'FAILURE' },
     S: { type: 'action', tick: () => 'SUCCESS' },
   };
-  const r = new Runner({ xml: `<root><BehaviorTree ID=\"T\"><Fallback><F/><S/></Fallback></BehaviorTree></root>`, nodes });
+  const r = new Runner({ xml: `<root><BehaviorTree ID="T"><Fallback><F/><S/></Fallback></BehaviorTree></root>`, nodes });
   const res = r.runUntilFinished();
   eq(res.status, 'SUCCESS');
 });
@@ -77,16 +77,16 @@ ok('ReactiveSequence re-ticks condition', () => {
   let cond = 0;
   const nodes = {
     C: { type: 'condition', tick: () => { cond++; return 'SUCCESS'; } },
-    D: { type: 'action', tick: () => 'RUNNING' },
+    D: { type: 'stateful', onStart: () => 'RUNNING', onRunning: () => 'RUNNING' },
   };
-  const r = new Runner({ xml: `<root><BehaviorTree ID=\"T\"><ReactiveSequence><C/><D/></ReactiveSequence></BehaviorTree></root>`, nodes });
+  const r = new Runner({ xml: `<root><BehaviorTree ID="T"><ReactiveSequence><C/><D/></ReactiveSequence></BehaviorTree></root>`, nodes });
   const res = r.runUntilFinished(5);
   // D runs forever; condition should be re-ticked on later ticks
   eq(cond > 1, true);
 });
 ok('Switch matches case_2', () => {
   const nodes = { C1: { type: 'action', tick: () => 'SUCCESS' }, C2: { type: 'action', tick: () => 'SUCCESS' }, DEF: { type: 'action', tick: () => 'SUCCESS' } };
-  const r = new Runner({ xml: `<root><BehaviorTree ID=\"T\"><Switch2 variable=\"{var}\" case_1=\"a\" case_2=\"42\"><C1 name=\"A\"/><C2 name=\"B\"/><DefNode name=\"D\"/></Switch2></BehaviorTree></root>`, nodes });
+  const r = new Runner({ xml: `<root><BehaviorTree ID="T"><Switch2 variable="{var}" case_1="a" case_2="42"><C1 name="A"/><C2 name="B"/><DEF name="D"/></Switch2></BehaviorTree></root>`, nodes });
   r.blackboard.set('var', 42);
   const res = r.runUntilFinished();
   eq(res.status, 'SUCCESS');
@@ -96,14 +96,14 @@ ok('Switch matches case_2', () => {
 });
 ok('IfThenElse picks else', () => {
   const nodes = { T: { type: 'action', tick: () => 'SUCCESS' }, F: { type: 'action', tick: () => 'SUCCESS' } };
-  const r = new Runner({ xml: `<root><BehaviorTree ID=\"T\"><IfThenElse><AlwaysFailure/><T/><F/></IfThenElse></BehaviorTree></root>`, nodes });
+  const r = new Runner({ xml: `<root><BehaviorTree ID="T"><IfThenElse><AlwaysFailure/><T/><F/></IfThenElse></BehaviorTree></root>`, nodes });
   r.runUntilFinished();
   eq(r.tally().find((x) => x.name === 'T').count, 0);
   eq(r.tally().find((x) => x.name === 'F').count, 1);
 });
 ok('Parallel 2 of 3', () => {
   const nodes = { R1: { type: 'action', tick: () => 'SUCCESS' }, R2: { type: 'action', tick: () => 'RUNNING' } };
-  const r = new Runner({ xml: `<root><BehaviorTree ID=\"T\"><Parallel success_count=\"2\"><AlwaysSuccess/><AlwaysSuccess/><R2/></Parallel></BehaviorTree></root>`, nodes });
+  const r = new Runner({ xml: `<root><BehaviorTree ID="T"><Parallel success_count="2"><AlwaysSuccess/><AlwaysSuccess/><R2/></Parallel></BehaviorTree></root>`, nodes });
   const res = r.runUntilFinished(4);
   eq(res.status, 'SUCCESS');
 });
@@ -111,39 +111,39 @@ ok('Parallel 2 of 3', () => {
 console.log('== decorators ==');
 ok('Timeout fails late child (poll-based)', () => {
   const nodes = { Slow: { type: 'stateful', onStart: () => 'RUNNING', onRunning: () => 'RUNNING' } };
-  const r = new Runner({ xml: `<root><BehaviorTree ID=\"T\"><Timeout msec=\"300\"><Slow sec=\"1\"/></Timeout></BehaviorTree></root>`, nodes });
+  const r = new Runner({ xml: `<root><BehaviorTree ID="T"><Timeout msec="300"><Slow/></Timeout></BehaviorTree></root>`, nodes });
   const res = r.runUntilFinished(10);
   eq(res.status, 'FAILURE');
-  eq(res.tickIndex, 6); // deadline 300ms; ticks at 50,100,...300 → fails on tick 6
+  eq(res.tickIndex, 6); // deadline 300ms anchored at tick start; 50ms/tick → fails on tick 6
 });
 ok('Delay postpones child', () => {
   const nodes = { D: { type: 'action', tick: () => 'SUCCESS' } };
-  const r = new Runner({ xml: `<root><BehaviorTree ID=\"T\"><Delay delay_msec=\"200\"><D/></Delay></BehaviorTree></root>`, nodes });
+  const r = new Runner({ xml: `<root><BehaviorTree ID="T"><Delay delay_msec="200"><D/></Delay></BehaviorTree></root>`, nodes });
   r.runUntilFinished();
   const t = r.tally().find((x) => x.name === 'D');
   eq(t.count, 1);
-  eq(r.tickIndex, 4); // deadline 200 → first real child tick at 250ms = tick 5? verify semantics
+  eq(r.tickIndex, 4); // 200ms fully elapsed at tick 4 (50ms/tick, anchored at tick start)
 });
 ok('Retry only runs on failure', () => {
   let k = 0;
   const nodes = { F: { type: 'action', tick: () => { k++; return 'FAILURE'; } } };
-  const r = new Runner({ xml: `<root><BehaviorTree ID=\"T\"><Retry num_attempts=\"3\"><F name=\"F2\"/></Retry></BehaviorTree></root>`, nodes });
+  const r = new Runner({ xml: `<root><BehaviorTree ID="T"><Retry num_attempts="3"><F name="F2"/></Retry></BehaviorTree></root>`, nodes });
   const res = r.runUntilFinished();
   eq(res.status, 'FAILURE');
   eq(k, 3);
 });
 ok('Repeat works', () => {
   let k = 0;
-  const nodes = { S: { type: 'action', tick: () => 'SUCCESS' } };
-  const r = new Runner({ xml: `<root><BehaviorTree ID=\"T\"><Repeat num_cycles=\"4\"><S name=\"S2\"/></Repeat></BehaviorTree></root>`, nodes });
+  const nodes = { S: { type: 'action', tick: () => { k++; return 'SUCCESS'; } } };
+  const r = new Runner({ xml: `<root><BehaviorTree ID="T"><Repeat num_cycles="4"><S name="S2"/></Repeat></BehaviorTree></root>`, nodes });
   const res = r.runUntilFinished();
   eq(res.status, 'SUCCESS');
-  eq(k === 0, true);
+  eq(k, 4);
   eq(r.tally().find((x) => x.name === 'S2').count, 4);
 });
 ok('RunOnce then_skip', () => {
   const nodes = { S: { type: 'action', tick: () => 'SUCCESS' }, B: { type: 'action', tick: () => 'SUCCESS' } };
-  const r = new Runner({ xml: `<root><BehaviorTree ID=\"T\"><Sequence><RunOnce><S name=\"S2\"/></RunOnce><B/></Sequence></BehaviorTree></root>`, nodes });
+  const r = new Runner({ xml: `<root><BehaviorTree ID="T"><Sequence><RunOnce><S name="S2"/></RunOnce><B/></Sequence></BehaviorTree></root>`, nodes });
   r.runUntilFinished();
   eq(r.tally().find((x) => x.name === 'S2').count, 1);
 });
@@ -164,7 +164,7 @@ ok('int->double widening allowed', () => {
 });
 ok('script writes blackboard', () => {
   const nodes = { S: { type: 'action', tick: () => 'SUCCESS' } };
-  const r = new Runner({ xml: `<root><BehaviorTree ID=\"T\"><Script code=\"dist := 2.5\"/><SetBlackboard value=\"2.5\" output_key=\"dd\"/></BehaviorTree></root>`, nodes });
+  const r = new Runner({ xml: `<root><BehaviorTree ID="T"><Sequence><Script code="dist := 2.5"/><SetBlackboard value="2.5" output_key="dd"/></Sequence></BehaviorTree></root>`, nodes });
   r.runUntilFinished();
   eq(r.blackboard.get('dist', 'double'), 2.5);
   eq(r.blackboard.get('dd', 'double'), 2.5);
@@ -182,7 +182,7 @@ ok('ports: in literal, out pointer', () => {
       },
     },
   };
-  const r = new Runner({ xml: `<root><BehaviorTree ID=\"T\"><P dist=\"1.5\" out=\"{outKey}\"/></BehaviorTree></root>`, nodes });
+  const r = new Runner({ xml: `<root><BehaviorTree ID="T"><P dist="1.5" out="{outKey}"/></BehaviorTree></root>`, nodes });
   r.runUntilFinished();
   eq(seen, 1.5);
   eq(r.blackboard.get('outKey', 'double'), 7.5);
@@ -191,7 +191,7 @@ ok('ports: in literal, out pointer', () => {
 console.log('== conditions & attributes ==');
 ok('_skipIf prevents ticking', () => {
   const nodes = { M: { type: 'action', tick: () => 'SUCCESS' } };
-  const r = new Runner({ xml: `<root><BehaviorTree ID=\"T\"><M name=\"M2\" _skipIf=\"true\"/></BehaviorTree></root>`, nodes });
+  const r = new Runner({ xml: `<root><BehaviorTree ID="T"><M name="M2" _skipIf="true"/></BehaviorTree></root>`, nodes });
   const res = r.runUntilFinished();
   eq(res.status, 'SKIPPED');
   eq(r.tally().find((x) => x.name === 'M2')?.count ?? 0, 0);
@@ -199,32 +199,44 @@ ok('_skipIf prevents ticking', () => {
 ok('_successIf forces SUCCESS', () => {
   let calls = 0;
   const nodes = { M: { type: 'action', tick: () => { calls++; return 'SUCCESS'; } } };
-  const r = new Runner({ xml: `<root><BehaviorTree ID=\"T\"><Script code=\"ok := 1\"/><M name=\"M2\" _successIf=\"ok\"/></BehaviorTree></root>`, nodes });
+  const r = new Runner({ xml: `<root><BehaviorTree ID="T"><Sequence><Script code="ok := 1"/><M name="M2" _successIf="ok"/></Sequence></BehaviorTree></root>`, nodes });
   const res = r.runUntilFinished();
   eq(res.status, 'SUCCESS');
   eq(calls, 0);
 });
-ok('ScriptCondition', () => {
+ok('ScriptCondition halts Sequence', () => {
   const nodes = { A: { type: 'action', tick: () => 'SUCCESS' } };
-  const r = new Runner({ xml: `<root><BehaviorTree ID=\"T\"><Sequence><ScriptCondition code=\"2 &gt; 1\"/><Script code=\"done := 4\"/><ScriptCondition code=\"1 &gt; 2\"/></Sequence></BehaviorTree></root>`, nodes });
-  r.runUntilFinished();
-  eq(r.blackboard.get('done', 'int'), undefined);
+  const r = new Runner({ xml: `<root><BehaviorTree ID="T"><Sequence><ScriptCondition code="2 &gt; 1"/><Script code="done := 4"/><ScriptCondition code="1 &gt; 2"/></Sequence></BehaviorTree></root>`, nodes });
+  const res = r.runUntilFinished();
+  eq(r.blackboard.get('done', 'int'), 4);    // Script ran before the failing condition
+  eq(res.status, 'FAILURE');                 // second ScriptCondition failed → Sequence failed
 });
 ok('Precondition node via script', () => {
   const nodes = { A: { type: 'action', tick: () => 'SUCCESS' } };
-  const r = new Runner({ xml: `<root><BehaviorTree ID=\"T\"><Sequence><Posty/><Script code=\"go := 1\"/><PreconditionPosty if=\"go\"/></Sequence></BehaviorTree></root>`, nodes });
-  r.runUntilFinished();
+  const r = new Runner({ xml: `<root><BehaviorTree ID="T"><Sequence><Script code="go := 1"/><Precondition if="go"><A name="A2"/></Precondition></Sequence></BehaviorTree></root>`, nodes });
+  const res = r.runUntilFinished();
+  eq(res.status, 'SUCCESS');
   eq(r.blackboard.get('go', 'int'), 1);
+  eq(r.tally().find((x) => x.name === 'A2').count, 1);
 });
 ok('_while interrupts RUNNING', () => {
-  const nodes = { M: { type: 'stateful', onStart: () => 'RUNNING', onRunning: () => 'RUNNING' } };
-  const r = new Runner({ xml: `<root><BehaviorTree ID=\"T\"><Script code=\"keep:=1\"/><M name=\"M2\" _while=\"keep\"/><Tick2/></BehaviorTree></root>`, nodes });
-  const n2 = { type: 'action', tick: (ctx) => { ctx.blackboard.set('keep', 0); return 'SUCCESS'; } };
-  r.factory.virtual.Tick功课 = n2;
-  const r2 = new Runner({ xml: `<root><BehaviorTree ID=\"T\"><Script code=\"keep:=1\"/><M name=\"M2\" _while=\"keep\"/><Kill/></BehaviorTree></root>`, nodes: { ...nodes, Kill: n2 } });
-  const res = r2.runUntilFinished();
-  eq(res.status, 'SUCCESS');
-  eq(r2.tally().find((x) => x.name === 'M2').count >= 1, true);
+  let running = 0, halted = 0;
+  const nodes = {
+    M: {
+      type: 'stateful',
+      onStart: (ctx) => 'RUNNING',
+      onRunning: (ctx) => { running++; return 'RUNNING'; },
+      onHalted: (ctx) => { halted++; },
+    },
+  };
+  const r = new Runner({
+    xml: `<root><BehaviorTree ID="T"><Sequence><Script code="keep := 1"/><M name="M2" _while="keep"/></Sequence></BehaviorTree></root>`,
+    nodes,
+    beforeTick: (runner) => { if (running >= 2) runner.blackboard.set('keep', 0); },
+  });
+  const res = r.runUntilFinished(10);
+  eq(halted, 1);              // keep flipped to 0 while M was RUNNING → onHalted fired
+  eq(res.status, 'SUCCESS');  // M SKIPPED → the Sequence moves on and reports SUCCESS
 });
 
 console.log('== subtrees ==');
@@ -236,7 +248,7 @@ ok('subtree remapping explicit', () => {
       tick: (ctx) => { ctx.setOutput('heard', 'got' + JSON.stringify(ctx.getInput('param', 'double'))); return 'SUCCESS'; },
     },
   };
-  const xml = `<root main_tree_to_execute=\"Main\"><BehaviorTree ID=\"Talk\"><P name=\"T\" param=\"{=}\" heard=\"{=}\"/></BehaviorTree><BehaviorTree ID=\"Main\"><SubTree ID=\"Talk\" param=\"{myParam}\" heard=\"{finalHeard}\"/></BehaviorTree></root>`;
+  const xml = `<root main_tree_to_execute="Main"><BehaviorTree ID="Talk"><P name="T" param="{=}" heard="{=}"/></BehaviorTree><BehaviorTree ID="Main"><SubTree ID="Talk" param="{myParam}" heard="{finalHeard}"/></BehaviorTree></root>`;
   const r = new Runner({ xml, nodes });
   r.blackboard.set('myParam', 5);
   const res = r.runUntilFinished();
@@ -254,7 +266,7 @@ ok('autoremap', () => {
       },
     },
   };
-  const xml = `<root main_tree_to_execute=\"Main\"><BehaviorTree ID=\"Sub\"><P name=\"P2\" x=\"3\"/></BehaviorTree><BehaviorTree ID=\"Main\"><SubTree ID=\"Sub\" name=\"S\" _autoremap=\"1\"/></BehaviorTree></root>`;
+  const xml = `<root main_tree_to_execute="Main"><BehaviorTree ID="Sub"><P name="P2" x="3"/></BehaviorTree><BehaviorTree ID="Main"><SubTree ID="Sub" name="S" _autoremap="1"/></BehaviorTree></root>`;
   const r = new Runner({ xml, nodes });
   r.runUntilFinished();
   eq(r.blackboard.get('shared', 'int'), 4);
@@ -262,33 +274,85 @@ ok('autoremap', () => {
 
 console.log('== virtual stateful / commands ==');
 ok('stateful action running across ticks', () => {
-  const nodes = { A: { type: 'stateful', onStart: (ctx) => { ctx.blackboard.set('started', 1); return 'RUNNING'; }, onRunning: (ctx) => { ctx.blackboard.set('ticks', (ctx.blackboard.get('ticks', 'int') ?? 0) + 1); return 'RUNNING'; }, onHalted: (ctx) => ctx.blackboard.set('halted', 1) } };
-  const r = new Runner({ xml: `<root><BehaviorTree ID=\"T\"><A/></BehaviorTree></root>`, nodes });
+  const nodes = {
+    A: {
+      type: 'stateful',
+      onStart: (ctx) => { ctx.blackboard.set('started', 1); return 'RUNNING'; },
+      onRunning: (ctx) => {
+        const prev = ctx.blackboard.tryGet('ticks');
+        ctx.blackboard.set('ticks', (prev.present ? prev.value : 0) + 1);
+        return 'RUNNING';
+      },
+      onHalted: (ctx) => ctx.blackboard.set('halted', 1),
+    },
+  };
+  const r = new Runner({ xml: `<root><BehaviorTree ID="T"><A/></BehaviorTree></root>`, nodes });
   const res = r.runUntilFinished(4);
   eq(r.blackboard.get('ticks', 'int'), 3);
   eq(res.status, 'RUNNING');
+});
+ok('command node round-trip', () => {
+  const cmd = {
+    _scheduled: false, _cancelled: false, elapsed: 0,
+    update() { this.elapsed += 50; if (this.elapsed >= 200) this._scheduled = false; },
+  };
+  const nodes = {
+    Grab: {
+      type: 'command',
+      ports: [{ dir: 'input', name: 'ms', type: 'int' }],
+      supplier: () => cmd,
+    },
+  };
+  const r = new Runner({
+    xml: `<root><BehaviorTree ID="T"><Grab ms="200"/></BehaviorTree></root>`,
+    nodes,
+    beforeTick: (runner) => { cmd.update(); },
+  });
+  const res = r.runUntilFinished(10);
+  eq(res.status, 'SUCCESS');
+  eq(cmd._cancelled, false);
+  eq(r.tally().find((x) => x.name === 'Grab').count, 4); // onStart (tick 1) + 3 onRunning polls
 });
 
 console.log('== xml errors ==');
 ok('unknown node error', () => {
   let threw = false;
-  try { createTreeFromText(`<root><BehaviorTree ID=\"T\"><Unkown/></BehaviorTree></root>`, {}); } catch { threw = true; }
+  try { createTreeFromText(`<root><BehaviorTree ID="T"><Unkown/></BehaviorTree></root>`, {}); } catch { threw = true; }
   if (!threw) throw new Error('must reject unknown node');
 });
 ok('two root children error', () => {
   let threw = false;
-  try { createTreeFromText(`<root><BehaviorTree ID=\"T\"><A/><B/></BehaviorTree></root>`, { nodes: { A: { type: 'action' }, B: { type: 'action' } } }); } catch { threw = true; }
+  try { createTreeFromText(`<root><BehaviorTree ID="T"><A/><B/></BehaviorTree></root>`, { nodes: { A: { type: 'action' }, B: { type: 'action' } } }); } catch { threw = true; }
   if (!threw) throw new Error('must reject two root children');
+});
+ok('doctype rejected like upstream', () => {
+  let threw = false;
+  try { createTreeFromText(`<!DOCTYPE root><root><BehaviorTree ID="T"><AlwaysSuccess/></BehaviorTree></root>`, {}); } catch { threw = true; }
+  if (!threw) throw new Error('must reject DOCTYPE (XXE hardening)');
 });
 
 console.log('== errors in ticks ==');
 ok('exception wraps in NodeExecutionError', () => {
   const nodes = { A: { type: 'action', tick: () => { throw new Error('boom'); } } };
-  const r = new Runner({ xml: `<root><BehaviorTree ID=\"T\"><A/></BehaviorTree></root>`, nodes });
+  const r = new Runner({ xml: `<root><BehaviorTree ID="T"><A/></BehaviorTree></root>`, nodes });
   let e = null;
   try { r.tick(); } catch (x) { e = x; }
   eq(e?.name, 'NodeExecutionError');
   if (e && !e.message.includes('boom')) throw new Error('missing cause: ' + e.message);
+});
+ok('SyncAction must not return RUNNING', () => {
+  const nodes = { A: { type: 'action', tick: () => 'RUNNING' } };
+  const r = new Runner({ xml: `<root><BehaviorTree ID="T"><A name="A2"/></BehaviorTree></root>`, nodes });
+  let e = null;
+  try { r.tick(); } catch (x) { e = x; }
+  eq(e?.kind, 'LogicError');
+});
+ok('root blackboard escape @key', () => {
+  const nodes = { S: { type: 'action', tick: (ctx) => { ctx.blackboard.set('@rooted', 77); return 'SUCCESS'; } } };
+  const r = new Runner({ xml: `<root><BehaviorTree ID="T"><S name="S2"/></BehaviorTree></root>`, nodes });
+  r.runUntilFinished();
+  eq(r.blackboard.get('@rooted', 'int'), 77);
+  eq(r.blackboard.get('rooted', 'int'), 77); // lives on the root blackboard
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -21,4 +21,9 @@ export const simClock = {
   now() { return currentNanos; },
   advanceTick() { currentNanos += CLOCK_TICK_NS; },
   get ms() { return Number(currentNanos / 1_000_000n); },
+  /** Timestamp at the START of the current simulated tick (now() minus one tick, floored at 0).
+   *  Polled decorators (Timeout/Delay/Sleep) anchor their deadline here, so elapsed time is a
+   *  whole number of ticks: msec="300" fires on the tick where 300ms have fully elapsed (tick 6),
+   *  Delay delay_msec="200" ticks its child on tick 4. */
+  startOfTick() { const t = currentNanos - CLOCK_TICK_NS; return t >= 0n ? t : 0n; },
 };

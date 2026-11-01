@@ -97,15 +97,14 @@ export class Blackboard {
   }
 
   /** Writing: self entry; subtree remaps redirect; autoRemap forwards to an existing parent
-   *  entry; otherwise the entry is created locally (mirrors upstream Blackboard::set). */
+   *  entry, and — mirroring upstream createEntryImpl — newly created entries are also created
+   *  in the PARENT blackboard when autoRemapping is on. Otherwise the entry is created locally. */
   _resolveForWrite(key) {
     let e = this.entries.get(key);
     if (e) return { bb: this, e };
     if (this.remaps.has(key) && this.parent) return this.parent._resolveForWrite(this.remaps.get(key));
     if (this.autoRemapping && !key.startsWith('_') && this.parent) {
-      let b = this.parent, pe = null, pb = null;
-      while (b && !pe) { pe = b.entries.get(key); if (pe) pb = b; b = b.parent; }
-      if (pe) return { bb: pb, e: pe };
+      return this.parent._resolveForWrite(key);
     }
     e = { key, value: undefined, type: null, declared: false, locked: false, seq: 0, stamp: 0 };
     this.entries.set(key, e);
@@ -123,8 +122,12 @@ export class Blackboard {
     this.apply(e, key, value);
   }
   apply(e, key, value) {
-    if (e.value !== undefined && e.type && e.locked) {
-      if (!compatible(e.type, value)) {
+    if (e.locked && e.type) {
+      if (typeof value === 'number' && ['int','long'].includes(e.type) && !Number.isInteger(value)) {
+        // Safe numeric widening (NumericCast.java): a double that doesn't fit the int entry
+        // widens the entry to double instead of throwing (int → double is the one allowed change).
+        e.type = 'double';
+      } else if (!compatible(e.type, value)) {
         throw LogicError(`Blackboard entry "${key}" was declared with type [${e.type}], but you are trying to write ${describeType(value)}. Once declared, the type of a port shall not change.`);
       }
     }
@@ -133,6 +136,7 @@ export class Blackboard {
       else if (typeof value === 'boolean') e.type = 'bool';
       else if (typeof value === 'string') e.type = 'string';
       else if (value && typeof value === 'object') e.type = 'any';
+      e.locked = true; // (Java) the entry locks on its first typed write
     }
     if (typeof value === 'string' && e.type != null && e.type !== 'string' && e.type !== 'any') {
       value = CONV[e.type]?.parse ? CONV[e.type].parse(value) : value;

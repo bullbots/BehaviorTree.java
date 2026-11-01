@@ -12,7 +12,7 @@ export function parseHash() {
   if (getUnit(uid) === null) return { view: 'home' };
   if (parts.length === 1) return { view: 'unit', uid };
   const lesson = getLesson(uid, parts[1]);
-  if (!lesson) return { view: 'home' };
+  if (!lesson || !lesson.items.length) return { view: 'home' };
   const idx = Math.min(+parts[2] || 0, lesson.items.length - 1);
   return { view: 'lesson', uid, lessonId: lesson.id, idx };
 }

@@ -222,10 +222,15 @@ export class ActionNodeBase extends TreeNode {
 }
 
 export class SyncActionNode extends ActionNodeBase {
-  tick() {
-    const s = this.doTick();
-    if (s === STATUS.RUNNING) throw LogicError(`[${this.nodeName}]: Tick() of a SyncActionNode must not return RUNNING`);
+  /* Java mirrors SyncActionNode::executeTick: the RUNNING check happens AFTER the wrapped
+   * super.executeTick(), so this LogicError propagates un-wrapped. */
+  executeTick() {
+    const s = super.executeTick();
+    if (s === STATUS.RUNNING) throw LogicError(`SyncActionNode MUST never return RUNNING: ${this.fullPath()}`);
     return s;
+  }
+  tick() {
+    return this.doTick();
   }
   doTick() { throw new Error('abstract'); }
 }
@@ -530,7 +535,7 @@ function checkStringEquality(v1, v2, enums) {
   const i1 = toIntCmp(v1, enums), i2 = toIntCmp(v2, enums);
   if (i1 !== null && i2 !== null && i1 === i2) return true;
   const r1 = toRealCmp(v1, enums), r2 = toRealCmp(v2, enums);
-  const eps = Math.ulp(1.0);
+  const eps = Number.EPSILON; // Java Math.ulp(1.0)
   return r1 !== null && r2 !== null && Math.abs(r1 - r2) <= eps;
 }
 function toIntCmp(str, enums) {
@@ -700,7 +705,7 @@ export class TimeoutNode extends DecoratorNode {
       this.started = true;
       this.setStatus(STATUS.RUNNING);
       const msec = this.getInput('msec', 'int');
-      this.deadlineNanos = msec > 0 ? simClock.now() + BigInt(msec) * 1_000_000n : 0n;
+      this.deadlineNanos = msec > 0 ? simClock.startOfTick() + BigInt(msec) * 1_000_000n : 0n;
     }
     if (this.deadlineNanos !== 0n && simClock.now() >= this.deadlineNanos) {
       this.started = false;
@@ -722,7 +727,7 @@ export class DelayNode extends DecoratorNode {
       this.started = true;
       this.setStatus(STATUS.RUNNING);
       const msec = this.getInput('delay_msec', 'int');
-      this.deadlineNanos = simClock.now() + BigInt(msec) * 1_000_000n;
+      this.deadlineNanos = simClock.startOfTick() + BigInt(msec) * 1_000_000n;
     }
     if (simClock.now() < this.deadlineNanos) return STATUS.RUNNING;
     const s = this.childNode.executeTick();
@@ -888,7 +893,7 @@ export class SleepNode extends StatefulActionNode {
   onStart() {
     const msec = this.getInput('msec', 'int');
     if (msec <= 0) return STATUS.SUCCESS;
-    this.deadlineNanos = simClock.now() + BigInt(msec) * 1_000_000n;
+    this.deadlineNanos = simClock.startOfTick() + BigInt(msec) * 1_000_000n;
     return STATUS.RUNNING;
   }
   onRunning() { return simClock.now() >= this.deadlineNanos ? STATUS.SUCCESS : STATUS.RUNNING; }
@@ -969,15 +974,26 @@ export function manifestOfDef(def) {
 class ActionNodeUser extends TreeNode {
   constructor(name, cfg, def) { super(name, name, cfg); this.def = def; }
   manifestPorts() { return manifestOfDef(this.def); }
+  /* exercise 'action' nodes are sync actions too: RUNNING belongs in 'stateful'/'command' defs
+   * (the check is outside the exception-wrapped tick, mirroring SyncActionNode) */
+  executeTick() {
+    const s = super.executeTick();
+    if (s === STATUS.RUNNING) throw LogicError(`SyncActionNode MUST never return RUNNING: ${this.fullPath()} (use a 'stateful' or 'command' node def instead)`);
+    return s;
+  }
   tick() { return this.def.tick ? this.def.tick(ctxOf(this)) : STATUS.SUCCESS; }
 }
 class ConditionNodeUser extends ConditionNode {
   constructor(name, cfg, def) { super(name, name, cfg); this.def = def; }
   manifestPorts() { return manifestOfDef(this.def); }
-  tick() {
-    const s = this.def.tick ? this.def.tick(ctxOf(this)) : STATUS.SUCCESS;
+  /* like SyncActionNode: the RUNNING check lives outside the exception-wrapped tick */
+  executeTick() {
+    const s = super.executeTick();
     if (s === STATUS.RUNNING) throw LogicError(`Condition nodes must not return RUNNING — but [${this.nodeName}] did.`);
     return s;
+  }
+  tick() {
+    return this.def.tick ? this.def.tick(ctxOf(this)) : STATUS.SUCCESS;
   }
 }
 class StatefulActionNodeUser extends StatefulActionNode {

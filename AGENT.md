@@ -29,15 +29,16 @@ Java port for WPILib (`java/behaviortree-core` + `java/behaviortree-wpilib` in t
 | # | Milestone | State |
 |---|-----------|-------|
 | M1 | Shell (router/sidebar/theme/store/lesson+quiz renderers) | ✅ written, ⚠️ untested in browser |
-| M2 | Engine (blackboard/script/xml/nodes/factory/runner) | ✅ written, ⚠️ **smoke test written but NOT yet run** |
+| M2 | Engine (blackboard/script/xml/nodes/factory/runner) | ✅ **DONE — smoke green: 37/37 via `node docs/learn/_smoke.mjs`** |
 | M3 | Workspace (editor/visualizer/blackboard/grading) | ✅ written, ⚠️ untested |
-| M4 | Content units 1–9 | ❌ **NOT written — app cannot load until `units/unit1..9.js` exist** |
+| M4 | Content units 1–9 | ⚠️ **stubs only**: `js/app/units/unit1..9.js` exist with real titles/taglines but EMPTY lessons — site loads its skeleton, no lessons yet. Full content NOT written. |
 | M5 | Test harness page, launcher, README, polish | ❌ |
-| M6 | Verify locally, clean remove `_smoke.mjs`, commit+push | ❌ (an intermediate commit already needed — see below) |
+| M6 | Commit+push at session end; final sweep | 🔁 ongoing (see Git notes) |
 
-⚠️ **Critical known gap:** `js/app/curriculum.js` imports `./units/unit1.js` … `unit9.js` which
-do not exist yet, so the site is broken until content files are created (or a temporary stub
-exporting `{id,title,tagline,lessons:[]}` is dropped in first).
+✅ **Stale "critical gap" resolved:** unit stub files now exist, so `js/app/curriculum.js` no longer
+crashes on import. Route guard added in `router.js` (a lesson with 0 items falls back to home instead
+of crashing on `items[-1]`). Keep that in mind while authoring: **never ship a lesson with zero
+items** in the final build.
 
 ## Repository context (facts that must stay accurate in lessons)
 
@@ -92,7 +93,8 @@ css/workspace.css           — editor/visualizer/blackboard/console styles
 js/app/app.js               — bootstrap: theme toggle, sidebar collapse, hash router hook
 js/app/router.js            — hash parser: #/ | #/:uid | #/:uid/:lessonId(/:idx)
 js/app/store.js             — localStorage progress ({done, data}, unitPercent, lastRoute)
-js/app/curriculum.js        — imports units/unit1..9.js (FILES MISSING YET) → UNITS, getUnit, getLesson
+js/app/curriculum.js        — imports units/unit1..9.js → UNITS, getUnit, getLesson
+                              (stubs exist with empty lessons, real titles/taglines)
 js/app/sidebar.js           — Codecademy-like sidebar (units, rings, item kinds, progress bars)
 js/app/pages.js             — home hero+unit cards; lesson crumb/progress/title;
                               block renderer hook; quiz renderer (immediate feedback);
@@ -130,81 +132,102 @@ js/engine/factory.js        — Factory + Tree: XML → node instances; BUILT-IN
 js/engine/runner.js         — Runner: builds tree, simClock per run, tick()/runUntilFinished(max)
                               /reset()/snapshot()/tally() (ticksCount increments in executeTick
                               only when actually ticking); globalThis.__btLog collects ctx.log
-_smoke.mjs                  — node smoke tests (~40 cases; run:  node docs/learn/_smoke.mjs)
-                              ⚠️ contains known junk lines to remove while fixing:
-                              - the `_while interrupts RUNNING` case has a stray broken
-                                assignment `r.factory.virtual.Tick功课 = n2;` (delete r/r2 dup,
-                                keep one), and `if (true)` style leftovers elsewhere
-                              - `Delay postpones child` expectation `r.tickIndex === 4` needs
-                                verification of virtual-clock semantics (50ms/tick) and possibly
-                                changed to a count-based assertion instead of exact index
+_smoke.mjs                  — engine smoke tests, 37/37 passing (run: node docs/learn/_smoke.mjs)
+                              junk/repairable cases all fixed this session; also covers Sleep/anchoring,
+                              command round-trip w/ beforeTick scheduler, DOCTYPE rejection, @key escape,
+                              SyncAction RUNNING rejection, autoremap + explicit SubTree remaps.
+                              ⚠️ TEMPORARY: becomes an in-site test.html harness before commit-out.
 ```
 
 ## Next steps (in order)
 
-1. **Run the smoke test and make it pass.**
-   `node docs/learn/_smoke.mjs` from repo root (or `docs/learn`). Expect several failures — fix
-   engine modules, NOT the tests (except the known-junk cases listed above, which need manual
-   repair first). Likely hotspots: blackboard `_resolveForWrite` chain handling, script parser
-   postfix loop precedence details, Switch uses `manifestFor` (factory must get it), factory
-   `manifestFor` probe instantiation for Switch (regex path already added), SubTree remap keys,
-   Runner `__btLog` re-definition across runners (use configurable get/set property per run),
-   `blackboard.tryGet` signature `{present,value}`, `Blackboard.entries` iteration for the
-   inspector, `parseLiteral` for `{_skipping}`/`{_halting}` leftovers (delete — those don't exist
-   in this port), status word normalization in `ScriptConditionNode` (`truthy` deals with texts),
-   xmltext attribute regex (works with `sticky`), `AttributeContext` leftover `ledger` var in
-   factory (delete unused), `NODE_KIND`, `kindFor` leftovers in factory (delete).
-2. **Add missing unit stubs** so the site loads: create `js/content/units/unit1.js` … `unit9.js`.
-   Then in the same pass, write the full curriculum content (schema below).
-   Suggested approach: author unit files in pairs with a matching `problems` review pass.
+1. ~~Run the smoke test and make it pass.~~ ✅ **All 37 tests pass** (`node docs/learn/_smoke.mjs`).
+   Engine fixes made during the first pass (all verified against the Java sources):
+   - `script.js`: `Math.ulp` → `Number.EPSILON`; **Python-style chained comparisons** implemented
+     as dedicated `cmp`/`cmpx` AST nodes (middle operand's VALUE is reused, `2<1<3`=false);
+     bare enum names now resolve when the blackboard lookup fails (`color := RED`).
+   - `nodes.js`: `Math.ulp` removed from Switch's `checkStringEquality`; Timeout/Delay/Sleep
+     anchor their deadline at **tick start** (`simClock.startOfTick()`, new clock API) so
+     `Timeout msec="300"` fails on tick 6 and `Delay delay_msec="200"` ticks the child on
+     tick 4, as the curriculum facts claim; `SyncActionNode`/`ConditionNodeUser`/`ActionNodeUser`
+     do the RUNNING check **outside** the wrapped tick (Java parity → unwrapped `LogicError`),
+     so exercise `'action'` defs must not return RUNNING — use `'stateful'`/`'command'`.
+   - `factory.js`: `querySelector` call on the custom XML tree replaced by `hasDescendant`
+     helper; **SubTree no longer treated as a decorator requiring XML children** (its child is
+     the referenced tree body, built in `instantiateSubtree`).
+   - `blackboard.js`: entries now **lock on the first typed write** (Java `set` parity) and a
+     `double` written to an `int` entry **widens the entry to double** instead of throwing —
+     ⚠️ deliberate deviation: real Java throws LogicError for `1.5` into a declared int entry.
+     See "Sim-only deviations" below before authoring unit 4. Auto-remap **writes now forward
+     creation to the parent blackboard** (Java `createEntryImpl` parity).
+   - `_smoke.mjs`: junk cases repaired as planned (`_while` dummy runners deleted, Delay index
+     assertion kept and now correct = tick 4), plus genuinely broken expectations fixed
+     (two-siblings-under-`<BehaviorTree>` XML wrapped in `<Sequence>`; `DefNode`→`DEF`;
+     `<Slow sec="1">` port typo; `ScriptCondition` now asserts `done==4` + FAILURE;
+     `Precondition` uses the real builtin; stateful tick counter uses `tryGet`). Added new
+     cases: Sleep/anchoring, command node round-trip (beforeTick scheduler pattern), DOCTYPE
+     rejection, `@key` root escape, Sync RUNNING rejection, autoremap.
+2. **Author the full unit content.** Files live at `js/app/units/unitN.js` (NOT
+   `js/content/…` as an earlier note said — the import in curriculum.js is the source of truth).
+   Write them one unit at a time, greppable through the schema at the bottom of this file,
+   and re-run a browser pass after every 2–3 units. Never leave a lesson with zero `items`
+   while committing (router now tolerates it, but the UI shows nothing).
 3. Wire content pages: verify router/sidebar/quiz/workspaces load in a browser:
    `python -m http.server 8420` inside `docs/learn` → `http://localhost:8420/`.
-   (On Windows PowerShell: `python -m http.server 8420` or `py -m http.server`.)
-   Test clicking through every lesson; fix runtime errors (likely: pages.js nav function
-   edge cases noted below).
+   Click through every lesson; fix runtime errors (pages.js nav edge cases still unverified).
 4. Add `docs/learn/start.cmd` + `start.sh` (serve + open browser at chosen port, e.g. 8420) and
    `docs/learn/README.md` (what it is, how to run, curriculum map, credit note: content teaches
    `BehaviorTree.java`, the WPILib port of BehaviorTree.CPP).
-5. Optional test-harness page `docs/learn/test.html` that runs the engine fidelity cases in
-   browser and shows pass/fail (reuse smoke cases) — nice for regression checking in repo CI toys.
-6. Delete `_smoke.mjs` (or move its cases into a permanent `js/engine/_tests.mjs` page-based
-   harness; Codacademy users never see it). Prefer keeping a permanent in-site `test.html`.
-7. Update this file (status + remaining), then **git commit with only the new files**:
-   - `git add AGENT.md docs/learn` (+ nothing else; check `git status` to avoid upstream files)
-   - commit message e.g. `docs/learn: BehaviorTree.java Academy — self-contained local course`
-   - `git push` (ask the user which remote/branch if there are multiple or protected refs).
-8. Final sweep before declaring done: try every unit clickable path, ensure no console errors,
-   no `file://` assumptions (all paths relative), dark-mode text contrast, and that exercises
-   actually annotate passing validators.
+5. Turn `_smoke.mjs` into a permanent in-site harness: copy the cases into a page wired to
+   `docs/learn/test.html` (no DOM dependency in the engine — all cases are pure node logic, so
+   they run in the browser too). Users never see it; it doubles as a regression tool after
+   engine tweaks made while authoring exercises.
+6. Final sweep before declaring done: try every unit clickable path, ensure no console errors,
+   no `file://` assumptions (all paths relative), dark-mode text contrast, exercises annotate
+   passing validators. Delete `_smoke.mjs` **only after** step 5 is committed.
+7. **git commit with only the new files** at every session end (had one landed this session —
+   see Git notes), then `git push`.
 
 ## Known issues / be-suspicious list (from the first draft pass)
 
+Resolved this session (do not re-litigate unless a symptom reappears): factory leftover
+`NODE_KIND`/`kindFor` concerns (checked — not present), blackboard lock semantics (now locked on
+first typed write, see "Engine fixes" above), SubTree decorator misclassification, Switch
+`manifestFor` wiring (works), `_while-interrupts` junk test, `Delay` stake (anchored; tick 4),
+Runner `__btLog` — verified fine via configurable defineProperty per Runner (still stale if two
+Runners coexist in the same page; keep in mind for test.html).
+
+Still open:
 - `pages.js` — `findRel` wrap logic; ensure prev/next cross-lesson navigation works and that the
   final "Unit finish →" button is only enabled when sensible. `refreshRoute` was replaced with
   direct `renderSidebar` call; verify no double-render loops. UnitComplete overlay is
   `renderMain.appendChild` hack — acceptable but fix id collision if it re-appends.
-- `store.js` — imports `getUnit` but may no longer use it (delete import); `lastRoute.get`
-  uses `getUnit(u.unit)` — verify behavior when unit is null.
 - `workspace.js` — `runBtn` pause toggle duplicates `startLoopManual`; the "⏸ Pause" reset of
   label after stopLoop in `startLoop` never happens (stopLoop leaves the pause label) — add
   label restore in stopLoop. `renderTree` uses `runner._lastTouchedUid` which is never set —
   either wire per-tick "touched" uid (nodes expose nodeUid on executeTick) or drop the gold flash.
-- `nodes.js` — `NodeExecutionError` name may shadow; `ctxOf().log` uses global hook (Runner
-  installs `__btLog` via defineProperty — make per-runner or id-unique to avoid stale runner logs).
-- `factory.js` — remove unused `const m`, `NODE_KIND`, `kindFor`, unused `model` var leftovers;
-  confirm `manifestFor` instantiates probes safely for all builtins (status etc).
-- `blackboard.js` — entry type inference sets `e.type` but never sets `e.locked = true` after
-  inference; decide: (Java) locks on first *typed* write → after inference set `locked = true`
-  (so later mismatched writes throw). Currently only `createEntry` sets locked. Update `apply`
-  accordingly and re-run smoke `type lock throws`.
+- `store.js` — verified: `getUnit` IS used by `lastRoute.get`; no dead import. Behavior when unit
+  is null is guarded (`u || state.data.last.unit === null`). OK.
 - `highlight.js` — script highlight regex may mis-handle `:=` vs `:` and `..`; check rendering
   of `<Script code="..."/>` inside XML (strings contain single quotes — fine).
 - Virtual `command` nodes: CommandActionLike polls `command._scheduled`; content schedulers must
-  keep commands advancing via `beforeTick: (runner) => ...` (documented pattern for exercises:
-  content defines `beforeTick` that advances its own mock commands; supplier sets `_scheduled=false`
-  when the command finishes). No central scheduler exists — that's by design (content-side),
+  keep commands advancing via `beforeTick: (runner) => ...` (verified pattern, see smoke's
+  `command node round-trip`). No central scheduler exists — that's by design (content-side),
   document it in unit 9 content.
 - `parseLiteral` treats `status` type inputs loosely; fine for sim.
+
+## Sim-only deviations (document for lessons before claiming "exactly like Java")
+
+1. **Virtual clock**: 1 tick = 50 ms, advanced once per Runner tick BEFORE the tree ticks.
+   Polled Timeout/Delay/Sleep anchor deadlines at `simClock.startOfTick()`, so elapsed time is a
+   whole number of ticks: Timeout 300 → FAILURE on tick 6; Delay 200 → child ticks on tick 4.
+2. **Blackboard widening on write**: writing 1.5 into an entry first written as `1` widens the
+   entry's type to double. In Java/behaviortree-core this throws (NumericCast.isSafe(int, 1.5) is
+   false). Unit 4 should teach "int entries keep their integer-ness; store doubles from the
+   start" and - either change the sim to throw for fidelity, or word the lesson as the sim
+   behaves. Decision needed from user before finalizing unit 4.
+3. **Sync RUNNING check**: virtual `'action'` defs reject RUNNING (Java parity with
+   SyncActionNode) with an unwrapped LogicError — steer exercise authors to `'stateful'`.
 
 ## Curriculum plan (approved; content to write in M4)
 
@@ -286,11 +309,15 @@ export default {
 
 - 1 tick = **50 simulated ms** (`simClock`); `Timeout msec="300"` fails on tick 6 (300ms); visual
   clock label shows `robot @ X.Xs`. `Run` mode ticks on an interval (default 220ms real time).
+- `Delay delay_msec="200"` ticks its child exactly on tick 4 (anchored at tick-start; verified
+  by smoke). `Sleep msec="500"` → SUCCESS the first tick where elapsed ≥ 500ms.
 - Mock robot: content supplies it inside `nodes` definitions; use `ctx.log('[Drive] moving…')`.
 - All blackboard values visible in inspector, `@key` shows under root.
 - Keep exercise node registries small and readable; prefer `type:'command'` for `Intake`-like
   mocks so lessons 9 can teach the identical `CommandActionNode` pattern.
 - Validators: prefer `ticksOf('Name')` over fragile order assertions.
+- Chained comparisons are Python-style in the sim script engine (`2<1<3` = false); enums resolve
+  as bare names; `@key` writes go to the ROOT blackboard (all verified by smoke cases).
 
 ## Git notes
 
@@ -299,6 +326,7 @@ export default {
 - **The repo moved**: GitHub now says the canonical remote is
   `https://github.com/bullbots/BehaviorTree.java.git` (the old `snowdriftdev` URL still redirects,
   but update the remote when convenient: `git remote set-url origin https://github.com/bullbots/BehaviorTree.java.git`).
+  ✅ Remote already points at the canonical `bullbots` URL — nothing to do.
   First working commit landed on `master` as `eee5931` (21 files, docs/learn shell+engine+workspace).
 - Expected branches/remote: user pushed from mono worktree before; ask only if push fails.
 - Commit before push at the end of each working session with the pattern:
@@ -319,9 +347,12 @@ export default {
 
 ## Environment
 
-- Windows 11, PowerShell; repo: `C:\Users\conta\Projects\BehaviorTree.java`.
+- Windows 11, PowerShell; repo: `C:\Users\conta\Projects\BehaviorTree.java`. Work has also been
+  done on Linux (node v22 available) — everything so far is plain ES modules, no toolchain, so
+  both shells behave identically; smoke run works anywhere node exists.
 - `node` was available to planned smoke run (verify with `node -v`; if absent, prefer
   `python http.server` + browser-based `test.html` harness).
 - User devices may continue work; keep everything self-contained and relative paths only.
 
-— end of handoff v1 (written after M1–M3 first pass, before first smoke run and content authoring).
+— end of handoff v2 (smoke green · engine fidelity fixes landed · unit stubs in place ·
+full content authoring is the next session's main task).

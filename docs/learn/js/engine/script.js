@@ -62,6 +62,7 @@ const BP = {
   '|': 12, '^': 12, '&': 14, '+': 16, '-': 16, '..': 16, '*': 18, '/': 18,
 };
 const ASSIGN_OPS = [':=', '=', '+=', '-=', '*=', '/='];
+const COMPARISON_OPS = ['==','!=','<','>','<=','>='];
 const UNARY = ['-', '~', '!'];
 
 export function parseScriptTree(src) {
@@ -110,13 +111,30 @@ export function parseScriptTree(src) {
       if (bp < minBp) break;
       next();
       const right = ASSIGN_OPS.includes(op) ? parseExpr(bp - 1) : parseExpr(bp + 1);
-      left = { k: 'bin', op, a: left, b: right };
+      left = comparisonNode(op, left, right);
       if (ASSIGN_OPS.includes(op)) break;
+      // chained comparisons, Python-style: 1<2<3 === (1<2) && (2<3); the middle operand's
+      // VALUE is reused, not the boolean of the first comparison.
+      if (COMPARISON_OPS.includes(op)) {
+        while (COMPARISON_OPS.includes(peekOp())) {
+          const op2 = next().val;
+          const right2 = parseExpr(BP[op2] + 1);
+          left = { k: 'cmpx', part: left, op: op2, b: right2 };
+        }
+      }
     }
     return left;
   }
 
-  const stmts = [];
+  /* Comparison nodes keep their operands as-is ('cmp'), or wrap a comparison so chains can
+ * reuse the middle operand's value ('cmpx'). */
+function comparisonNode(op, a, b) {
+  return COMPARISON_OPS.includes(op)
+    ? { k: 'cmp', op, a, b }
+    : { k: 'bin', op, a, b };
+}
+
+const stmts = [];
   while (peek().type !== 'eof') {
     stmts.push(parseExpr(0));
     if (peekOp() === ';') next();
@@ -157,7 +175,7 @@ function doStringify(v) {
   if (typeof v === 'number') return fmtNum(v);
   return String(v);
 }
-const EPS = Math.ulp(1.0);
+const EPS = Number.EPSILON; // Java Math.ulp(1.0) == 2^-52 == Number.EPSILON
 
 function numEq(a, b) { return Math.abs(a - b) <= EPS; }
 
@@ -195,12 +213,33 @@ export function evalScript(ast, ctx) {
   return result;
 }
 
+/** Evaluates a comparison or a comparison chain. Returns {val, res}: `val` is the value of the
+ *  right-most operand (so deeper chain links can compare against it), `res` the boolean result. */
+function compareValue(e, ctx) {
+  if (e.k === 'cmp') {
+    const a = evalExpr(e.a, ctx), b = evalExpr(e.b, ctx);
+    return { val: b, res: compare(e.op, a, b) };
+  }
+  // 'cmpx'
+  const inner = compareValue(e.part, ctx);
+  if (!inner.res) return { val: undefined, res: false };
+  const b = evalExpr(e.b, ctx);
+  return { val: b, res: compare(e.op, inner.val, b) };
+}
+
 function evalExpr(e, ctx) {
   switch (e.k) {
     case 'lit': return e.v;
+    case 'cmp': return compareValue(e, ctx).res;
+    case 'cmpx': return compareValue(e, ctx).res;
     case 'name': {
-      const v = ctx.getVar(e.v);
-      if (v === undefined || v === null) throw RuntimeError2(`Variable not found: ${e.v}`);
+      let v;
+      try { v = ctx.getVar(e.v); } catch { v = undefined; }
+      if (v === undefined || v === null) {
+        // bare enum names resolve to their registry value
+        if (ctx.enums && ctx.enums[e.v] !== undefined) return ctx.enums[e.v];
+        throw RuntimeError2(`Variable not found: ${e.v}`);
+      }
       return v;
     }
     case 'un': {
