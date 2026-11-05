@@ -6,7 +6,12 @@ export const isCompleted = (s) => s === STATUS.SUCCESS || s === STATUS.FAILURE;
 export const isActive = (s) => s !== STATUS.IDLE && s !== STATUS.SKIPPED;
 
 export class BTError extends Error {
-  constructor(msg, kind) { super(msg); this.name = kind || 'BehaviorTreeException'; this.kind = kind || 'BehaviorTreeException'; }
+  constructor(msg, kind) {
+    super(msg);
+    this.name = kind || 'BehaviorTreeException';
+    this.kind = kind || 'BehaviorTreeException';
+    this._msg = msg; // commonly read everywhere (UI + tests); keep in sync with .message
+  }
 }
 export const LogicError = (msg) => new BTError(msg, 'LogicError');
 export const RuntimeError2 = (msg) => new BTError(msg, 'RuntimeError');

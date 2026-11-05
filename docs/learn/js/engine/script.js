@@ -1,6 +1,6 @@
 // Faithful JS port of org.behaviortree.core.scripting (Lexer + ScriptParser + Environment).
-// Grammar: statements separated by ';', last value returned. Numbers are doubles upstream
-// (BehaviorTree.java collapses int64/uint64/double); booleans and strings are first-class here.
+// Grammar: statements separated by ';', the LAST value is returned. Java parity for values:
+// every script number is a Double, "booleans" are the doubles 1.0/0.0, strings quote with '.
 import { RuntimeError2 } from './clock.js';
 
 /* ------------- Lexer ------------- */
@@ -96,7 +96,7 @@ export function parseScriptTree(src) {
     // postfix loop
     while (true) {
       const op = peekOp();
-      if (op === '?' ) {
+      if (op === '?') {
         if ((BP['?'] || 4) < minBp) break;
         next();
         const thenE = parseExpr(0);
@@ -127,15 +127,15 @@ export function parseScriptTree(src) {
     return left;
   }
 
-  /* Comparison nodes keep their operands as-is ('cmp'), or wrap a comparison so chains can
- * reuse the middle operand's value ('cmpx'). */
-function comparisonNode(op, a, b) {
-  return COMPARISON_OPS.includes(op)
-    ? { k: 'cmp', op, a, b }
-    : { k: 'bin', op, a, b };
-}
+  /* Comparison nodes keep their operands as-is ('cmp'), or wrap a comparison so chain links
+   * can reuse the middle operand's value ('cmpx'). */
+  function comparisonNode(op, a, b) {
+    return COMPARISON_OPS.includes(op)
+      ? { k: 'cmp', op, a, b }
+      : { k: 'bin', op, a, b };
+  }
 
-const stmts = [];
+  const stmts = [];
   while (peek().type !== 'eof') {
     stmts.push(parseExpr(0));
     if (peekOp() === ';') next();
@@ -196,21 +196,11 @@ function compare(op, a, b, enums) {
   }
   throw RuntimeError2(`Can't mix different types in a comparison`);
 }
-function strCanBeConverted(s) {
-  if (ctxEnumsHas(s)) return true;
-  const low = s.toLowerCase();
-  if (low === 'true' || low === 'false') return true;
-  return !Number.isNaN(Number(s.trim()));
-}
-let ctxEnumsHas = () => false;
 
 /* The evaluation context: { getVar(name), setVar(name, value, create), enums } */
 export function evalScript(ast, ctx) {
-  const savedEnums = ctx.enums;
-  ctxEnumsHas = (s) => savedEnums ? (s in savedEnums) : false;
   let result;
   for (const stmt of ast.statements) result = evalExpr(stmt, ctx);
-  ctxEnumsHas = () => false;
   return result;
 }
 
@@ -275,17 +265,15 @@ function evalExpr(e, ctx) {
       }
       const a = evalExpr(e.a, ctx), b = evalExpr(e.b, ctx);
       if (op === '..') {
+        // Java toStringValue: whole doubles print as integers ("120" for 120.0)
         return doStringify(a) + doStringify(b);
       }
       if (op === '+') {
-        const bothStr = typeof a === 'string' && typeof b === 'string';
-        if (bothStr) return a + b;
-        const isStr = typeof a === 'string' || typeof b === 'string';
-        if (isStr) {
-          // upstream errors: mixed types in alpha add
-          if (!(isNumable(a) && isNumable(b))) throw RuntimeError2(`Can't mix different types in an arithmetic expression`);
-        }
-        return toNumber(a, { op: '+' }) + toNumber(b, { op: '+' });
+        if (typeof a === 'string' && typeof b === 'string') return a + b;
+        if (isNumber(a) && isNumber(b)) return a + b;
+        // Java ExprBinary: one string + one number → "Operation not permitted between the
+        // given operand types" (strings mix into arithmetic only via `..` or comparisons)
+        throw RuntimeError2(`Operation not permitted between the given operand types`);
       }
       const na = toNumber(a, { op }), nb = toNumber(b, { op });
       switch (op) {
@@ -299,12 +287,6 @@ function evalExpr(e, ctx) {
       throw RuntimeError2(`Unknown operator ${op}`);
     }
   }
-}
-
-function isNumable(v) {
-  if (typeof v === 'number' || typeof v === 'boolean') return true;
-  if (typeof v === 'string') return strCanBeConverted(v);
-  return false;
 }
 
 /* Java parity: the TYPE a script-created entry gets on its first write.
@@ -331,16 +313,21 @@ function assign(op, name, rhs, ctx, rhsAst) {
     ctx.setVar(bare, rhs, root, false);
     return rhs;
   }
-  // compound: numeric only (string += allowed)
+  // compound assignment (Java ExprAssignment parity): decided by the RHS type — a numeric RHS
+  // needs a numeric current value; a string RHS is only legal on `+=` and forces a concat.
   const cur = ctx.getVarAllowInit(bare, root);
   if (cur === undefined || cur === null) {
-    throw RuntimeError2(`Blackboard entry [${bare}] is not initialized. Use [:=] first`);
+    throw RuntimeError2(`The left operand of the operator [${op}] is not initialized`);
   }
   let nv;
-  if (op === '+=' && typeof cur === 'string') nv = cur + doStringify(rhs);
-  else {
-    const a = toNumber(cur, { op }), b = toNumber(rhs, { op });
-    nv = op === '+=' ? a + b : op === '-=' ? a - b : op === '*=' ? a * b : a / b;
+  if (typeof rhs === 'number') {
+    if (typeof cur !== 'number') throw RuntimeError2(`This assignment operator can't be used with a non-numeric type`);
+    nv = op === '+=' ? cur + rhs : op === '-=' ? cur - rhs : op === '*=' ? cur * rhs : cur / rhs;
+  } else if (typeof rhs === 'string') {
+    if (op !== '+=') throw RuntimeError2(`Operator not supported for strings`);
+    nv = doStringify(cur) + rhs;
+  } else {
+    throw RuntimeError2(`Operator not supported for this type`);
   }
   ctx.setVar(bare, nv, root, false);
   return nv;

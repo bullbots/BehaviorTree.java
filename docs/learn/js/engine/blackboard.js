@@ -53,19 +53,9 @@ export function inferLiteral(str) {
   return str;
 }
 
-// Numeric widening (NumericCast.java): a set stays legal when it is safe.
-function isSafeSetType(destType, v) {
-  if (destType === 'double' || destType === 'float') return typeof v === 'number' || typeof v === 'boolean' || typeof v === 'string';
-  if (destType === 'int' || destType === 'long') {
-    if (typeof v === 'number') return Number.isInteger(v);
-    return typeof v === 'boolean' || typeof v === 'string';
-  }
-  return false;
-}
-
 /* ---------------- Blackboard ---------------- */
 export class Blackboard {
-  constructor(parent = null, clockRef = simClock) {
+  constructor(parent = null) {
     this.parent = parent;
     this.entries = new Map(); // key -> Entry
     this.seqCounter = 0;
@@ -78,8 +68,8 @@ export class Blackboard {
 
   _bump(entry) { entry.seq = ++this.seqCounter; entry.stamp = simClock.ms; }
 
-  /** Java Blackboard.getEntry parity: '@' escape, local entry, subtree remap → parent,
-   *  then autoRemapping → parent. Returns null when nothing was found anywhere. */
+  /** Java Blackboard.getEntry parity: '@' escape, local entry, then subtree remap /
+   *  autoRemapping delegation to the parent. Returns null when nothing was found. */
   getEntry(key) {
     if (key.startsWith('@')) return this.rootBlackboard().getEntry(key.slice(1));
     const local = this.entries.get(key);
@@ -89,12 +79,6 @@ export class Blackboard {
       if (remapped) return this.parent.getEntry(remapped);
       if (this.autoRemapping && !key.startsWith('_')) return this.parent.getEntry(key);
     }
-    return null;
-  }
-
-  _findEntry(key) {
-    let b = this;
-    while (b) { const e = b.entries.get(key); if (e) return { bb: b, e }; b = b.parent; }
     return null;
   }
 
@@ -133,10 +117,9 @@ export class Blackboard {
     this.apply(e, key, value);
   }
   apply(e, key, value) {
-    // Java parity (Blackboard.set): entries are strongly typed from the first written value.
-    //   - string values do NOT lock the type (Java's `new TypeInfo()` == ANY)
-    //   - a Number into a numeric entry is accepted when NumericCast.isSafe(previousType, n)
-    //   - String values are parsed into the declared type; failure → "type shall not change"
+    // Java parity (Blackboard.set): entries lock from their FIRST typed write, and later
+    // writes must type-match — unless they are strings parseable into the declared type
+    // (Java set() tries value.info.parseString first), or numerics that pass NumericCast.isSafe.
     if (e.locked && e.type && e.type !== 'any' && value !== undefined) {
       const prevT = e.type;
       const newT = typeof value === 'number' ? (Number.isInteger(value) ? 'int' : 'double')
@@ -215,7 +198,6 @@ export class Blackboard {
     this.entries.delete(key);
   }
   keys() { return [...this.entries.keys()]; }
-  anyEntries() { return [...this.entries.values()].filter((e) => e.value !== undefined); }
 }
 
 /** Java parity for "can I overwrite this strongly-typed entry?": subclassing collapsed to our
@@ -231,39 +213,18 @@ function ASSIGNABLE(prevT, newT, value) {
   return false;
 }
 
-function compatible(type, v) {
-  if (type === 'any' || type == null) return true;
-  if (typeof v === 'number') return ['int','long','double','float','status'].includes(type) ? isSafeSetType(type, v) : false;
-  if (typeof v === 'boolean') return type === 'bool' || ['int','double'].includes(type);
-  if (typeof v === 'string') return true; // strings parse into typed entries
-  if (type === 'any') return true;
-  if (Array.isArray(v)) return true; // queues / arrays
-  return false;
-}
-
 function convert(value, type, key) {
-  if (type == null || type === 'any') { if (typeof value === 'boolean') return value; return value; }
+  if (type == null || type === 'any') return value;
   if (type === 'status') return parseStatus(value);
-  if (type === 'string') {
-    if (typeof value === 'boolean') return String(value);
-    if (typeof value === 'number') return Number.isInteger(value) ? String(value) : String(value);
-    return String(value);
-  }
+  if (type === 'string') return String(value);
   if (typeof value === 'number') {
     if ((type === 'int' || type === 'long') && !Number.isInteger(value)) throw RuntimeError2(`Cannot convert ${value} to int for key [${key}]`);
     return value;
   }
   if (typeof value === 'boolean') {
-    if (['int'].includes(type)) return value ? 1 : 0;  // NumericCast allows bool -> int
-    if (['double','float'].includes(type)) return value ? 1.0 : 0.0;
+    if (type === 'int' || type === 'long') return value ? 1 : 0; // NumericCast allows bool -> int
+    if (type === 'double' || type === 'float') return value ? 1.0 : 0.0;
     if (type === 'bool') return value;
   }
   return CONV[type].parse(value);
-}
-
-function describeType(v) {
-  if (typeof v === 'number') return Number.isInteger(v) ? 'an integer' : 'a double';
-  if (typeof v === 'boolean') return 'a boolean';
-  if (typeof v === 'string') return 'a string';
-  return 'another type';
 }

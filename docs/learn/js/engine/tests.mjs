@@ -3,7 +3,6 @@
 import { Runner } from './runner.js';
 import { parseScript } from './script.js';
 import { Blackboard } from './blackboard.js';
-import { simClock } from './clock.js';
 import { createTreeFromText } from './factory.js';
 
 const CASES = [];

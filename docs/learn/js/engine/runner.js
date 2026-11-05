@@ -1,7 +1,7 @@
 // Run controller: builds a fresh Tree from XML + exercise config and drives ticks on the
 // virtual clock. Mirrors how BehaviorTreeCommand ticks a tree once per robotPeriodic().
 import { simClock, STATUS } from './clock.js';
-import { createTreeFromText, Tree } from './factory.js';
+import { createTreeFromText } from './factory.js';
 
 export class Runner {
   constructor({ xml, nodes, enums, beforeTick }) {

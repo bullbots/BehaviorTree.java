@@ -142,10 +142,17 @@ export function renderLesson(page, uid, lessonId, idx) {
       const nxt = getLesson(next.uid, next.lessonId).items[next.idx];
       const tag = nxt.kind === 'quiz' ? 'Quiz — ' : nxt.kind === 'exercise' ? 'Practice — ' : '';
       nextBtn.textContent = `Next: ${tag}${nxt.title}`;
-      nextBtn.onclick = () => navigate(next.uid, next.lessonId, next.idx);
+      // reading / code-study items self-complete on "Next" (quizzes need all correct,
+      // exercises need all checks passed — see the renderers above)
+      const selfDone = item.kind === 'reading' || item.kind === 'java';
+      nextBtn.onclick = () => {
+        if (selfDone && !store.isDone(itemKey)) store.markDone(itemKey);
+        navigate(next.uid, next.lessonId, next.idx);
+      };
     } else {
       nextBtn.textContent = 'Unit finish →';
       nextBtn.onclick = () => {
+        if ((item.kind === 'reading' || item.kind === 'java') && !store.isDone(itemKey)) store.markDone(itemKey);
         navigate(uid); // show home/unit cards
         if (store.lessonDone(uid, lesson)) renderUnitComplete(unit);
       };

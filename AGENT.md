@@ -178,6 +178,15 @@ Resolved across the build + full-review sessions (keep the list closed unless sy
   one factually wrong blackboard quiz (script seeds declare Doubles → retargeted the quiz to the
   SetBlackboard Integer path), unit-7 remap example corrected (inside the subtree you read the
   INTERNAL name; the redirection lands it on the parent key)
+- **Final 100% sweep (Nov 2026):** script engine gained exact Java parity for `'5' + 3`
+  ("Operation not permitted between the given operand types" — was silently coercing), compound
+  assignments now dispatch on the RHS type (numeric RHS requires a numeric entry; string RHS only
+  legal on `+=` → concat, `ExprAssignment` parity); dead blackboard helpers removed
+  (`compatible`/`isSafeSetType`/`describeType`/`_findEntry`/`anyEntries`); BTError now carries
+  `_msg`; **progress gap fixed — reading/code-study items complete on "Next"** (a reading-only
+  lesson could never previously reach 100%); syntax-highlight span classes were COMPLETELY
+  UNSTYLED in css → palette added for codeblocks AND the editor overlay; runner/test modules
+  dropped unused imports
 
 Still open (subjective, user-testing tier):
 - Dark-mode contrast nits, quiz retry feel, `highlight.js` cosmetic regex edge cases.
