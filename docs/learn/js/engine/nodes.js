@@ -1034,12 +1034,12 @@ export function ctxOf(node) {
     tryGetInput: (k, t) => node.tryGetInput(k, t),
     setOutput: (k, v) => node.setOutput(k, v),
     get blackboard() { return node.config.blackboard; },
-    log: (msg) => console(msg),
+    log: (msg) => emitLog(msg),
     node: { name: node.nodeName, path: node.fullPath(), status: () => node.status() },
   };
 }
-function console(msg) {
-  // the workspace collects log lines via a global hook
+function emitLog(msg) {
+  // the workspace collects lines via this global hook (installed per Runner)
   if (typeof globalThis.__btLog === 'function') globalThis.__btLog(msg);
 }
 

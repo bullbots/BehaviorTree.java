@@ -17,7 +17,7 @@ export default {
           blocks: [
             { t: 'code', lang: 'java', name: 'JAVA', file: 'SpinFlywheelNode.java', code: `public class SpinFlywheelNode extends StatefulActionNode
 {
-  private double startRpm;
+  private double targetRpm;
 
   public SpinFlywheelNode(String name, NodeConfig config) { super(name, config); }
 
@@ -29,8 +29,8 @@ export default {
   @Override
   protected NodeStatus onStart()
   {
-    startRpm = 0.0;                                   // fresh state every start
-    shooterSubsystem.spinTo(getInput("rpm", Double.class));
+    targetRpm = getInput("rpm", Double.class);
+    shooterSubsystem.spinTo(targetRpm);
     return NodeStatus.RUNNING;                        // "this will take a few ticks"
   }
 
@@ -38,8 +38,7 @@ export default {
   protected NodeStatus onRunning()
   {
     double now = shooterSubsystem.rpm();
-    if (now < 0.95 * getInput("rpm", Double.class)) return NodeStatus.RUNNING;
-    return NodeStatus.SUCCESS;
+    return now < 0.95 * targetRpm ? NodeStatus.RUNNING : NodeStatus.SUCCESS;
   }
 
   @Override
@@ -50,12 +49,12 @@ export default {
 }` },
             { t: 'p', md: 'The stateful contract, straight from the Java base class:' },
             { t: 'list', items: [
-              'First tick (status IDLE) → `onStart()`. May return RUNNING, SUCCESS (instant), or FAILURE — **never IDLE**.',
-              'Subsequent ticks while RUNNING → `onRunning()`. Return RUNNING to keep the tick, or a finished status to end.',
-              '`haltNode()` → `halt()` → if the node was RUNNING, `onHalted()` runs. Its job: make the robot SAFE. No return value — the node ends what\'s "supposed" to be SKIPPED/IDLE by the wrapper.',
+              'First tick (status IDLE) → `onStart()`. May return RUNNING, SUCCESS, or FAILURE — **never IDLE**.',
+              'Subsequent ticks while RUNNING → `onRunning()`. Return RUNNING to keep the tick alive, or a finished status to end.',
+              'When the node is halted → `halt()` → if the node was RUNNING, `onHalted()` runs. No return value — its only job is to make the robot SAFE; the wrapper resets the node\'s status afterwards.',
             ] },
-            { t: 'warn', md: 'Do all state reset in `onStart`, not the constructor — a tree can restart many times between robot brown-outs (tree ids never re-created in one `autonomous.xml`). The same Node object is re-ticked across restarts of the tree: one port manifest + three callbacks per instance.' },
-            { t: 'note', md: 'You saw this under real Java integration in the WPILib layer: `CommandActionNode` (unit 9) is a StatefulActionNode whose "state" is the live Command handle.' },
+            { t: 'warn', md: 'Reset state in `onStart`, never rely on the constructor — a tree restart (a tick after a FAILURE, or a fresh auto) re-ticks the SAME node instance without constructing a new one.' },
+            { t: 'note', md: 'You will meet this shape again in the WPILib layer: `CommandActionNode` (unit 9) is a StatefulActionNode whose "state" is the live Command handle.' },
           ],
         },
         {
@@ -65,13 +64,12 @@ export default {
             brief: 'The sim carries `SpinFlywheel` exactly as the Java class above. Step the first ~8 ticks and use the tree view to catch the status transitions. Then let the grader verify the sequence of states.',
             tasks: [
               'Run the default tree — it is already correct',
-              'Note how `spin ticks` and the blackboard speed climb in tandem',
+              'Note how the blackboard `speed` climbs while the node stays RUNNING',
               'Run & check',
             ],
             startXml: `<root BTCPP_format="4" main_tree_to_execute="Spinup">
   <BehaviorTree ID="Spinup">
     <SpinFlywheel rpm="120"/>
-    <!-- rpm="120" → 120 rpm moves in steps of 25 per tick -->
   </BehaviorTree>
 </root>`,
             refXml: `<root BTCPP_format="4" main_tree_to_execute="Spinup">
@@ -96,8 +94,8 @@ export default {
               },
             },
             validators: [
-              { label: 'onStart ran exactly once', check: (api) => api.ticksOf('SpinFlywheel') >= 5 || 'SpinFlywheel should run several ticks' },
-              { label: 'final speed 125 rpm', check: (api) => api.get('speed') >= 125 || `speed = ${api.get('speed')}` },
+              { label: 'SpinFlywheel ran several ticks (≥ 5)', check: (api) => api.ticksOf('SpinFlywheel') >= 5 || 'SpinFlywheel should run several ticks' },
+              { label: 'final speed ≥ 125 rpm', check: (api) => api.get('speed') >= 125 || `speed = ${api.get('speed')}` },
               { label: 'tree ended SUCCESS', check: (api) => api.status === 'SUCCESS' || `tree ended ${api.status}` },
             ],
             hints: [
@@ -123,7 +121,7 @@ export default {
     },
     {
       id: 'halting',
-      title: 'Halting: stopping a plan mid-pride',
+      title: 'Halting: stopping a branch mid-motion',
       items: [
         {
           kind: 'reading',
@@ -131,12 +129,12 @@ export default {
           blocks: [
             { t: 'p', md: 'Three everyday situations put a halt through the tree:' },
             { t: 'list', items: [
-              'The **root completes** while an older branch is still RUNNING-looking (Sequence restarts and schedules fresh plans), e.g. sequence FAILURE from a later step is passed through children restart.',
-              'A control- or decorator-node decides this branch should not continue — e.g. `ReactiveSequence` containing a flag condition that goes false while the RUNNING branch is mid-motion.',
-              'External reset — `tree.haltTree()` via Wpilib `end(true)` or mine Cleanup scripts. A tick\'s `haltTree()` scans every node, halting any that are RUNNING.',
+              'A parent **rewinds**: a plain `Sequence` whose later child FAILS resets all of its children — any one that was RUNNING gets halted as the plan rewinds to child 1.',
+              'A control/decorator node decides this branch must not continue — the classic case is a `ReactiveSequence` whose cheap guard condition goes false while the RUNNING branch is mid-motion.',
+              'External reset — `tree.haltTree()`, e.g. from WPILib `end(true)` when the auto is cancelled. It walks the whole tree and halts every still-RUNNING node.',
             ] },
-            { t: 'p', md: 'Halting propagates DOWNWARD: a halted control/decorator halts its children recursively until leaf RUNNING nodes reach `onHalted()`. After the halt, every node sports IDLE — ready to be retried cleanly.' },
-            { t: 'tip', md: 'Think of `onHalted` as the emergency launch brake of your custom node. Anything you start that keeps a motor swapping with the hardware needs a defined cancel path (and `CommandActionNode` gets it automatically — its onHalted cancels the command).' },
+            { t: 'p', md: 'Halting propagates DOWNWARD: a halted control/decorator node halts its children recursively, until leaf RUNNING nodes reach `onHalted()`. After a halt every node is IDLE — ready for a clean retry.' },
+            { t: 'tip', md: 'Think of `onHalted` as the emergency brake of your custom node: anything you started that touches hardware needs a defined stop path. (And `CommandActionNode` gets one automatically — its `onHalted` cancels the command.)' },
             { t: 'p', md: 'Below, watch the REACTIVE pattern in the simulator: a `ReactiveSequence` re-asks a cheap `Safe` sensor every tick. When it loses the go-ahead, the RUNNING mechanism behind it is **halted mid-motion**.' },
           ],
         },
@@ -146,8 +144,8 @@ export default {
           workspace: {
             brief: 'The launcher must spin only while the shooter is aligned. Run the tree: the flag `go` is set to 0 mid-run (simulating poor sensor data), and `SpinFlywheel` must be politely halted. **Watch the ticks** — this is exact Robot behavior, step by step.',
             tasks: [
-              'Run the default tree, use Step if you want detail; note when SpinFlywheel halts',
-              'Check the blackboard after — `speed` must be capped near 90 rpm',
+              'Run the default tree, use Step if you want detail; note exactly which tick SpinFlywheel halts on',
+              'Check the blackboard after — `speed` must be stuck mid-motion (50 rpm), not 100+',
             ],
             startXml: `<root BTCPP_format="4" main_tree_to_execute="Reactive">
   <BehaviorTree ID="Reactive">
@@ -182,14 +180,15 @@ export default {
                 if (last !== null && runner.tickIndex >= 4 && runner.blackboard.get('go','double') !== 0) runner.blackboard.set('go', 0);
               };
             })(),
-            validators: [
+              validators: [
               { label: 'SpinFlywheel was halted', check: (api) => api.get('halted') === 1 || 'the mechanism never received onHalted' },
-              { label: 'halt happened mid-motion (speed 25..75 at halt, not 100+)', check: (api) => (api.get('speed') >= 25 && api.get('speed') <= 75) || `speed ${api.get('speed')} — the robot should NOT keep spinning while the sensor has stopped agreeing` },
+              { label: 'halt happened mid-motion (speed 25..75, not 100+)', check: (api) => (api.get('speed') >= 25 && api.get('speed') <= 75) || `speed ${api.get('speed')} — the launcher should NOT keep spinning while the guard says no` },
               { label: 'the safe sensor was re-asked', check: (api) => api.ticksOf('Safe') >= 4 || 'ReactiveSequence must re-tick Safe on later ticks' },
             ],
             hints: [
-              'ReactiveSequence: on FAILURE of an earlier (cheap) child, the traffic stops and RUNNING children are halted.',
-              'beforeTick in the sim sets go := 0 on tick 4 — exactly the surprising middle of an auto run.',
+              'ReactiveSequence: on FAILURE of an earlier (cheap) child, the branch stops and RUNNING children are halted.',
+              'beforeTick in the sim flips `go` to 0 on tick 4 — exactly the annoying middle of an auto run.',
+              'The halt SPEED check is the point: onHalted stopped the ramp mid-motion, instantaneously.',
             ],
           },
         },
@@ -198,15 +197,15 @@ export default {
           title: 'Check yourself',
           questions: [
             {
-              q: 'What happens to the TOP-level BehaviorTreeCommand if your RUNNING node keeps status RUNNING but refuses to ever finish?',
+              q: 'What happens to the top-level BehaviorTreeCommand if a leaf keeps returning RUNNING forever?',
               options: [
-                'Auto mode times out at 15 s regardless',
-                'The command runs forever until cancelled — isFinished() is only SUCCESS/FAILURE',
-                'WPILib resets subsystems automatically after 30 robber periods',
+                'The autonomous period times it out at 15 s and moves on',
+                'The command keeps ticking until cancelled — isFinished() only returns true on SUCCESS/FAILURE',
+                'WPILib ends auto commands after 30 seconds automatically',
               ],
               correct: 1,
-              explain: 'A tree that never sets its root failure produces an auto that drives nowhere exactly. For a "too slow" branch: Timeout (unit 6) or a keep-alive FAILURE in your recovery conditions. Autonomous periods also come from field control, naturally.',
-              hint: 'Who implements your tree\'s clock? Also note: a FRC auto period is host-controlled; your tree is not.',
+              explain: 'isFinished() is wired to the root status, so a never-finishing tree ticks forever on your robot. The autonomous 15-second period is enforced by the FIELD, not your command — but for a branch that hangs, put a `Timeout` around it (unit 6).',
+              hint: 'Who decides "finished" for your command — and who enforces the field clock?',
             },
           ],
         },
@@ -221,16 +220,13 @@ export default {
           title: 'Three Sequences, three kinds of patience',
           blocks: [
             { t: 'table', cols: ['Node', 'On child FAILURE', 'On child RUNNING', 'Use when'], rows: [
-              ['`Sequence`', 'restart from child 1 next tick', 'resume next tick (A owns the tick)', 'plain ordered plans'],
-              ['`ReactiveSequence`', 'resets, same restart path', 'earlier children are RE-TICKED every tick', 'ordered plans with cheap, re-checked guards'],
-              ['`SequenceWithMemory` (alias `SequenceStar`)', 'resumes at the failed child', 'resume at the running child', 'plans where earlier steps must not repeat'],
-              ['`AsyncSequence`', 'restart (like Sequence)', 'returns RUNNING right after a child completed, before advancing', 'letting one-tick children call through without merging multiple steps per tick'],
+              ['`Sequence`', 'reset all children; the next attempt starts from child 1', 'resume next tick (that child owns the tick)', 'plain ordered plans'],
+              ['`ReactiveSequence`', 'reset all children; restart from child 1', 'earlier children are RE-TICKED every tick (guards checked continuously)', 'ordered plans with cheap, re-checked guards'],
+              ['`SequenceWithMemory` (alias `SequenceStar`)', 'resume AT the failed child — earlier completed steps do not repeat', 'resume at the running child', 'plans where repeating an expensive completed step would be wasteful or unsafe'],
+              ['`AsyncSequence`', 'reset all children (like Sequence)', 'returns RUNNING immediately after a child completes, then advances on the next tick', 'spreading one-tick children across ticks instead of finishing several in one pass'],
             ] },
-            { t: 'p', md: 'There is a subtle behavior worth seeing once in the visualizer: **plain Sequence RESTARTS the whole brain after a FAILURE.** If `C` fails as the third tick D 5 ticks each, everything starts again. For a battery that functioned as intended: place a WAIT some place at the start, or use SequenceWithMemory to reduce restart costs for the earlier steps.' },
-            { t: 'code', lang: 'xml', name: 'XML', file: 'memory.xml', code: `<SequenceWithMemory>
-  <Arm ms="100"/>      <!-- runs a total of 1 time, even if Collect fails 5 times -->
-  <Collect ms="200"/>
-</SequenceWithMemory>` },
+            { t: 'p', md: 'The one to internalize: **plain Sequence restarts from child 1 after a FAILURE.** If `[A, B, C]` keeps failing at C, plain Sequence re-runs A and B on every attempt — fine when they are cheap, expensive or unsafe when not. That is exactly what `SequenceWithMemory` trades: keep the cursor at the failing child and do not repeat the completed steps.' },
+            { t: 'code', lang: 'xml', name: 'XML', file: 'memory.xml', code: '<SequenceWithMemory>\n  <Arm ms="100"/>      <!-- runs exactly once, even if Collect fails repeatedly -->\n  <Collect ms="200"/>\n</SequenceWithMemory>' },
           ],
         },
         {
@@ -296,7 +292,7 @@ export default {
               q: 'Which Sequence restarts ALL completed children when a later child fails?',
               options: ['SequenceWithMemory', 'Both Sequence and ReactiveSequence', 'AsyncSequence only'],
               correct: 1,
-              explain: 'Plain Sequence resets all children on child-failure; ReactiveSequence quizzes/ticks its previous children every pass anyway. Only SequenceWithMemory preserves its cursor across failures (deliberately not resetting currentChildIdx on halt).',
+              explain: 'Plain Sequence resets all children on a child FAILURE; ReactiveSequence re-ticks its earlier children every pass anyway. Only SequenceWithMemory keeps its cursor across failures (deliberately: does not reset currentChildIdx on a FAILURE).',
               hint: 'Which two reset the current index on FAILURE?',
             },
             {

@@ -1,11 +1,5 @@
 // UNIT 4 — Data on the Blackboard. Ports remapped by {pointers}, literals, SetBlackboard,
 // <Script>, type-lock (why it throws, Java-faithful), safe numeric casts, @root escape, {=} alias.
-const msOf = (ctx, name, def) => { const r = ctx.tryGetInput(name, 'int'); return r.present ? r.value : def; };
-const timedCmd = (defMs, name = 'ms') => (ctx) => {
-  const c = { _scheduled: true, left: Math.ceil(msOf(ctx, name, defMs) / 50) };
-  c.update = () => { c.left -= 1; if (c.left <= 0) c._scheduled = false; };
-  return c;
-};
 export default {
   id: 4,
   color: '#e8a13c',
@@ -20,18 +14,18 @@ export default {
           kind: 'reading',
           title: 'Ports read text; the blackboard stores values',
           blocks: [
-            { t: 'p', md: 'XML attributes are **strings**. `distance="2.5"` is converted to a Java `Double` (`double`) at tick time; `message="hello"` stays a string. When you want a port to read a **variable** instead, wrap it in braces — `{distance}` is a **blackboard pointer**:' },
+            { t: 'p', md: 'XML attributes are **strings**. `distance="2.5"` is converted to a Java `Double` at tick time; `message="hello"` stays a string. When you want a port to read a **variable** instead, wrap it in braces — `{distance}` is a **blackboard pointer**:' },
             { t: 'code', lang: 'xml', name: 'XML', file: 'pointers.xml', code: `<Sequence>
   <Script code="distance := 2.5"/>
   <MoveBy distance="{distance}" arrived="{done}"/>
   <CheckReached reached="{done}"/>   <!-- another node READS what MoveBy wrote -->
 </Sequence>` },
-            { t: 'p', md: 'Same port, two data source machinery: `2.5` is a literal; `{done}` books an address at `Blackboard["done"]`. Writing to an output port **stores** a value in the blackboard (creating the entry on first write); reading an input pointer **fetches** it — and if the key was never written, you get a Runtime "missing key" at tick time, matching upstream.' },
+            { t: 'p', md: 'One port attribute, one of two data sources: `2.5` is a literal parsed each read; `{done}` is an address in the blackboard. Writing to an output port **stores** a value under its pointer key (creating the entry on first write); reading an input pointer **fetches** it — and if the key was never written, the read fails with a runtime "missing key" error, matching upstream.' },
             { t: 'code', lang: 'java', name: 'JAVA', file: 'TreeNode.java excerpt', code: `// node.getInput(key, T) mirrors this pseudo-code:
 //  1. literal from the XML?  -> parse it as T
 //  2. "{pointer}"?           -> value = blackboard.get(pointerName, T)
 //  3. none of the above?     -> manifest default, else throw "missing key"` },
-            { t: 'tip', md: 'One convention worth adopting: names like `game_piece_count` (snake_case) read well in Groot-style tools, because the blackboard key shares the namespace with port names.' },
+            { t: 'tip', md: 'A convention worth adopting: snake_case keys (`game_piece_count`) read well once they land in dashboards, because the blackboard key shares its namespace with port names.' },
           ],
         },
         {
@@ -115,9 +109,9 @@ export default {
 <Script code="rpm := rpm + 15"/>
 <Script code="ready := rpm > 50"/>` },
             { t: 'list', items: [
-              '`SetBlackboard` — one literal write, visible enough to be self-documenting.',
-              '`<Script>` — a tiny scripting language (unit 8). Inside a script, `x := v` **creates or overwrites** the entry; `x = v` assigns ONLY if `x` already exists (creating silently with `=` upstream is a classic typo — the engine throws to remind you).',
-              'Both write through the same `Blackboard.set(...)` — same type-lock, same counts.',
+              '`SetBlackboard` — one literal write, nicely self-documenting for one-off constants.',
+              '`<Script>` — a mini expression language (full tour in unit 8). In a script, `x := v` **creates or overwrites**; `x = v` assigns an EXISTING entry only and throws "use the operator [:=] instead" if `x` was never created — a built-in typo catcher.',
+              'Both roads go through the same `Blackboard.set(...)` — same type-lock, same sequence counters.',
             ] },
             { t: 'note', md: 'Scripts evaluate left-to-right and return the LAST statement\'s value. They are single expressions + assignments — no loops, no functions. For anything bigger, write it in Java (unit 3).' },
           ],
@@ -162,8 +156,8 @@ export default {
               { label: 'tree ended SUCCESS', check: (api) => api.status === 'SUCCESS' || `tree ended ${api.status}` },
             ],
             hints: [
-              'The Warmup simulation gets faster by pushing rpm +15 each onRunning; SUCCESS once rpm ≥ 60.',
-              'Type-lock: `rpm := 0` declares rpm as a whole-number entry — keep all later writes whole numbers, or start with `rpm := 0.0`.',
+              'The Warmup mock ramps +15 rpm per onRunning and succeeds once it is at or above the target.',
+              'Script numbers are Java Doubles: `rpm := 0` already declares a double entry, so all later writes fit.',
             ],
           },
         },
@@ -179,7 +173,7 @@ export default {
                 '`:=` only works with numbers',
               ],
               correct: 1,
-              explain: 'This mirrors BT.CPP exactly (operator := current value-create semantics). The `=`-on-missing error is a beloved typo catcher: ports that "half-work" get caught the first tick, in the sim, not on the robot.',
+              explain: 'BT.CPP parity: `:=` means create-or-overwrite; `=` means existing-only. The `=`-on-missing error is a typo catcher — things that "half-work" get caught on their first tick in the sim, not at a competition.',
               hint: 'The colon means "make it first".',
             },
           ],
@@ -194,18 +188,18 @@ export default {
           kind: 'reading',
           title: 'Once declared, the type of a port shall not change',
           blocks: [
-            { t: 'p', md: 'Every `Blackboard.set(key, value)` in the Java port is strongly typed from the first typed write. The rule is verbatim upstream: **"once declared, the type of a port shall not change."** Hand-written ports lock from `createEntry` (via manifests); a script\'s first write infers the type too (`rpm + 15` → double; scripts have no booleans at all — `true` is just the double `1.0`).' },
-            { t: 'table', cols: ['Declared type', 'Later write', 'Verdict'], rows: [
-              ['`int x := 3`', '`x = 3.5`', '**.LogicError** — 3.5 is not "unchanged-safe" for an int entry'],
-              ['`int x := 3`', '`x = 2.0`', 'allowed — `NumericCast.isSafe(int, 2.0)`: it is mathematically 2'],
-              ['`double d := 2.5`', '`d = 3`', 'allowed — int widens into a double port'],
-              ['`string s := "hi"` (script)', '`s = 42`', '**LogicError** — the first write locked the entry to String, and 42 is not parseable as a String'],
+            { t: 'p', md: 'Every `Blackboard.set(key, value)` in the Java port is strongly typed from the first typed write. The rule is verbatim upstream: **"once declared, the type of a port shall not change."** How the first write decides the type: a typed **port declaration** creates the entry with its declared type; a `SetBlackboard` literal infers it (`"5"` → Integer, `"2.5"` → Double); and a **script** write always produces a Double (with enums the one exception — they lock as int, unit 8).' },
+            { t: 'table', cols: ['Entry declared as', 'Later write', 'Verdict'], rows: [
+              ['`int` (a typed port, or `SetBlackboard value="3"`)', '`x = 3.5`', '**LogicError** — 3.5 is not losslessly castable to int'],
+              ['`int` (same sources)', '`x = 2.0`', 'allowed — `NumericCast.isSafe(int, 2.0)`: it IS mathematically 2'],
+              ['`double`', '`d = 3`', 'allowed — an int widens into a double port'],
+              ['`string` (a script write or String-typed port)', '`s = 42`', '**LogicError** — the first write locked the entry to String, and 42 is not parseable as a String'],
             ] },
             { t: 'p', md: 'The exact Java error you will memorize after one fight with the blackboard:' },
             { t: 'code', lang: 'text', name: 'CONSOLE', code: `LogicError: Blackboard::set(rpm): once declared, the type of a port shall not
 change. Previously declared type [java.lang.Integer], current type [java.lang.Double]` },
-            { t: 'tip', md: 'It is annoying **on purpose**. A port that flips between counting and metering is usually a bug: two nodes disagreeing about units. The type-lock turns it into a loud tick-time failure instead of a silently-wrong robot.' },
-            { t: 'warn', md: 'In the simulator, `Blackboard` behaves exactly like Java here — including the Allows-int-of-2.0 cast. That same strictness catches XML type mistakes: `value="{rpm}"` into an int-typed output explodes the FIRST tick, which is prototype-friendly.' },
+            { t: 'tip', md: 'It is annoying **on purpose**. A key that flips between counting and metering usually means two nodes disagreeing about units — the type-lock turns that into a loud tick-time failure instead of a silently-wrong robot.' },
+            { t: 'note', md: 'Simulator parity: `Blackboard` here reproduces all of this — including the allowed int-of-2.0 cast and the entry-adopts-the-value-class rule on the first write. The strictness also catches XML mistakes: a pointer bound to an output port of the wrong declared type fails the FIRST tick.' },
           ],
         },
         {
@@ -288,15 +282,15 @@ change. Previously declared type [java.lang.Integer], current type [java.lang.Do
           title: 'Check yourself',
           questions: [
             {
-              q: '`speed := 5` was already executed by a Script. Another node does `speed = 2.5`. Result?',
+              q: 'A `SetBlackboard value="5"` ran (inferLiteral → an Integer entry for `speed`). A node script then runs `speed = 2.5`. Result?',
               options: [
-                'Allowed — double wins',
-                'LogicError: the int entry refuses 2.5 (not losslessly castable)',
+                'Allowed — the entry widens to double',
+                'LogicError: the Integer entry refuses 2.5 (not losslessly castable to int)',
                 'speed rounds to 3',
               ],
               correct: 1,
-              explain: 'isSafe(int, 2.5) is false: writing 2.5 loses the fractional part. Java throws; the sim mirrors it, so scripts must start with 2.5-styled values when they intend doubles.',
-              hint: 'isSafe asks: can this double roundtrip back through the declared type with zero data loss?',
+              explain: 'NumericCast.isSafe(int, 2.5) is false — writing 2.5 would lose the fractional part. The same happens in the sim. Note the contrast: a SCRIPT seed (`speed := 5`) would have declared a Double, and 2.5 would then fit — the first writer decides.',
+              hint: 'isSafe asks: does this double survive the cast back to the declared type with zero data loss?',
             },
           ],
         },

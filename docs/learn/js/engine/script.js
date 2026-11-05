@@ -180,16 +180,16 @@ const EPS = Number.EPSILON; // Java Math.ulp(1.0) == 2^-52 == Number.EPSILON
 
 function numEq(a, b) { return Math.abs(a - b) <= EPS; }
 
-function compare(op, a, b) {
+function compare(op, a, b, enums) {
   const bothStr = typeof a === 'string' && typeof b === 'string';
-  const numA = isNumber(a) || typeof a === 'boolean' || (typeof a === 'string' && strCanBeConverted(a, b));
   if (bothStr) {
     switch (op) {
       case '==': return a === b; case '!=': return a !== b;
       case '<': return a < b; case '>': return a > b; case '<=': return a <= b; case '>=': return a >= b;
     }
   }
-  const na = toNumber(a, { op }), nb = toNumber(b, { op });
+  // Java ScriptValues.stringToDouble: string operands convert through enums / true/false / parse
+  const na = toNumber(a, { op, enums }), nb = toNumber(b, { op, enums });
   switch (op) {
     case '==': return numEq(na, nb); case '!=': return !numEq(na, nb);
     case '<': return na < nb; case '>': return na > nb; case '<=': return na <= nb; case '>=': return na >= nb;
@@ -219,13 +219,13 @@ export function evalScript(ast, ctx) {
 function compareValue(e, ctx) {
   if (e.k === 'cmp') {
     const a = evalExpr(e.a, ctx), b = evalExpr(e.b, ctx);
-    return { val: b, res: compare(e.op, a, b) };
+    return { val: b, res: compare(e.op, a, b, ctx.enums) };
   }
   // 'cmpx'
   const inner = compareValue(e.part, ctx);
   if (!inner.res) return { val: undefined, res: false };
   const b = evalExpr(e.b, ctx);
-  return { val: b, res: compare(e.op, inner.val, b) };
+  return { val: b, res: compare(e.op, inner.val, b, ctx.enums) };
 }
 /* Java parity: comparisons evaluate to 1.0 (true) or 0.0 (false) — never a real boolean */
 const asNum = (r) => (r ? 1 : 0);
@@ -271,7 +271,7 @@ function evalExpr(e, ctx) {
       }
       if (['==','!=','<','>','<=','>='].includes(op)) {
         const a = evalExpr(e.a, ctx), b = evalExpr(e.b, ctx);
-        return asNum(compare(op, a, b));
+        return asNum(compare(op, a, b, ctx.enums));
       }
       const a = evalExpr(e.a, ctx), b = evalExpr(e.b, ctx);
       if (op === '..') {

@@ -117,6 +117,7 @@ export function renderExercise(body, item, finish, page) {
     try {
       runner = new Runner({ xml: edArea.value, nodes: cfg.nodes || {}, enums: cfg.enums || {}, beforeTick: cfg.beforeTick });
       runner.render = { clockLabel };
+      prevByUid = new Map(); // fresh tree → fresh highlight baseline
       treeWrap.classList.remove('ws-flash');
       return runner;
     } catch (e) {
@@ -216,29 +217,27 @@ export function renderExercise(body, item, finish, page) {
 
   function renderBB(res) {
     bbWrap.innerHTML = '';
+    // the inspector shows the ROOT blackboard (exercise nodes write there; `@key` too).
+    // Subtree-local entries stay out by design — unit 7 teaches @key/autoremap for visibility.
     const bb = runner.blackboard;
     const head = DC('div', 'ws-bb-head', `Blackboard (${(res?.simMs ?? 0) / 1000}s)`);
     bbWrap.appendChild(head);
     let count = 0;
-    const collect = (bb, depth, label) => {
-      for (const e of bb.entries.values()){
-        if (e.value === undefined) continue;
-        count++;
-        const row = DC('div', 'bb-row');
-        const key = DC('span', 'bb-key', depth ? `${label ?? ''}${e.key}` : e.key);
-        const val = DC('span', 'bb-val', typeof e.value === 'object' ? '[queue]' : String(e.value));
-        const ty = DC('span', 'bb-type', e.type ?? '?');
-        row.appendChild(key); row.appendChild(val); row.appendChild(ty);
-        bbWrap.appendChild(row);
-      }
-      // child blackboards only visible through subtree refs (this engine builds them on demand)
-      if (bb.entries.size === 0 && depth === 0) {
-        const row = DC('div', 'bb-row');
-        row.innerHTML = `<span style="opacity:.55">empty — nothing has been stored yet</span>`;
-        bbWrap.appendChild(row);
-      }
-    };
-    collect(bb, 0, '');
+    for (const e of bb.entries.values()) {
+      if (e.value === undefined) continue;
+      count++;
+      const row = DC('div', 'bb-row');
+      const val = DC('span', 'bb-val', typeof e.value === 'object' ? '[queue]' : String(e.value));
+      row.appendChild(DC('span', 'bb-key', e.key));
+      row.appendChild(val);
+      row.appendChild(DC('span', 'bb-type', e.type ?? '?'));
+      bbWrap.appendChild(row);
+    }
+    if (count === 0) {
+      const row = DC('div', 'bb-row');
+      row.innerHTML = `<span style="opacity:.55">empty — nothing has been stored yet</span>`;
+      bbWrap.appendChild(row);
+    }
   }
 
   function renderConsole() {

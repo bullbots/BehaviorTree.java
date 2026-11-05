@@ -41,16 +41,16 @@ export default {
   <PlanB name="Default"/>   <!-- always the LAST child: the default case -->
 </Switch3>` },
             { t: 'list', items: [
-              '`Switch2` … `Switch6` — compare the `variable` port against `case_N` (string-or-number compare with the same epsilon logic as the script engine). Last child is always the default.',
-              '`IfThenElse` — 2 or 3 children `[cond, then, else?]`. **The condition changes the tick only ONCE**: over 2 children, a FAILED condition returns FAILURE each tick it re-asks... which is exactly why non-reactive Gotcha: in a plain Sequence, the whole IfThenElse lives only in the tick it was entered.',
-              '`WhileDoElse` — 2 children `[while-condition, do]` (+ optional `[?]  else` branch that runs whenever the while goes false). It is reactive by design: the condition is re-asked EVERY tick while `do` is RUNNING.',
+              '`Switch2` … `Switch6` — compare the `variable` port against each `case_N` and run the matching child. The LAST child is always the default.',
+              '`IfThenElse` — 2 or 3 children `[cond, then, else?]`. The condition is evaluated ONCE; the chosen branch then runs to completion, and only after that is the condition consulted again. It is NOT reactive while the branch is RUNNING — for that, use `WhileDoElse`.',
+              '`WhileDoElse` — children `[cond, do]` (plus an optional third `else` branch). Reactive by design: while `do` is RUNNING, `cond` is re-asked every tick; the moment it goes false, `do` is halted and the else branch (or FAILURE, with two children) takes over.',
             ] },
             { t: 'code', lang: 'xml', name: 'XML', file: 'while-do-else.xml', code: `<WhileDoElse>
   <BallLoaded/>
-  <Shooting ms="250"/>        <!-- loops/keeps shooting while NOTE actually loaded -->
+  <Shooting ms="250"/>        <!-- keeps shooting while BallLoaded holds; halts the shot otherwise -->
 </WhileDoElse>` },
-            { t: 'warn', md: '`IfThenElse` in BehaviorTree.java is **NOT** reactive (upstream BT.CPP the same). If you need a fresh look at the condition while the branch runs, pick WhileDoElse, or make the condition a child of a ReactiveSequence wrapping sequence branches yourself.' },
-            { t: 'p', md: 'In the tool phrasing: `SwitchN.variable` is typed "string" from the XML perspective, but `42`-style cases are converted (string, then int, then real-with-epsilon) — upstream\'s `checkStringEquality` behavior, which the simulator mirrors.' },
+            { t: 'warn', md: '`IfThenElse` is NOT reactive in BehaviorTree.java — and neither is it in upstream BT.CPP. If the branch must react to a changing condition, reach for `WhileDoElse`, or wrap the branch in a `ReactiveSequence` with the condition first.' },
+            { t: 'p', md: 'One implementation detail on `SwitchN`: the `variable`/`case_N` ports are string-typed, but `"42"` still matches the value 42. The comparison tries plain string equality, then integer, then real with epsilon — upstream\'s `checkStringEquality`, mirrored by the simulator.' },
           ],
         },
         {
@@ -118,7 +118,7 @@ export default {
               ],
               correct: 1,
               explain: 'WhileDoElse holds the condition alive: FAILURE while the do-branch is running halts it (onHalted for stateful actions) and switches to the else child, or returns FAILURE with two children.',
-              hint: 'Think about the robot mid-shoot when the note statistic is suddenly no longer loaded.',
+              hint: 'Picture the robot mid-shot when "note loaded" suddenly stops being true.',
             },
           ],
         },
@@ -135,19 +135,19 @@ export default {
             { t: 'code', lang: 'xml', name: 'XML', file: 'parallel.xml', code: `<Parallel success_count="2" failure_count="1">
   <ReadyToShoot/>       <!-- condition, re-ticked each pass -->
   <SpinUp ms="300"/>
-  <AlignToDept ms="200"/>
+  <AlignTurret ms="200"/>
 </Parallel>` },
-            { t: 'p', md: 'A `Parallel` ticks **every child every tick** (skipping completed ones). The pair of thresholds decides the outcome:' },
+            { t: 'p', md: 'A `Parallel` ticks **every child every tick** (skipping already-completed ones). The pair of thresholds decides the outcome:' },
             { t: 'table', cols: ['Port', 'Default', 'Meaning'], rows: [
-              ['`success_count`', '-1', 'how many children must SUCCEED to end the Parallel SUCCESSfully. Negative means "all children except N"'],
-              ['`failure_count`', '1', 'how many children failing ends the whole Parallel with FAILURE'],
+              ['`success_count`', '-1', 'children that must SUCCEED to end the Parallel successfully. A negative value means "from the end": -1 = all children, -2 = all but one'],
+              ['`failure_count`', '1', 'children failing that ends the whole Parallel with FAILURE (negative counts "from the end" too)'],
             ] },
             { t: 'list', items: [
-              'Every tick: for each incomplete child — SUCCESS/FAILURE add to counters, RUNNING stays open. Thresholds are checked after each child (an early full count can stop mid-row).',
-              '`ParallelAll` is the degenerate version: succeed when ALL succeed, fail after max_failures (=1 by default).',
-              'Parallel is the correct FRC idiom for *decoupled mechanisms*: a shooter can be spinning while the drivetrain segues — each child owns its own statefulness.',
+              'Each tick: every not-yet-completed child is ticked. SUCCESS/FAILURE add to the counters and complete that child; RUNNING stays open. Thresholds are checked after each child return (so a full count can cut the pass halfway through the row).',
+              '`ParallelAll` is the all-or-nothing cousin: SUCCESS when every child succeeds, FAILURE after `max_failures` failures (1 by default).',
+              'Parallel is the FRC idiom for *decoupled mechanisms*: the flywheel spins while the drivetrain drives — each child owns its own RUNNING statefulness.',
             ] },
-            { t: 'warn', md: 'Children of a Parallel that have *completed* are skipped on later ticks (via `completed` set). CONDITIONS re-run by construction — use Parallel like "Analyse then decide", but remember its FAILURE semantics: one failed condition + default failure_count kills the other work.' },
+            { t: 'warn', md: 'Children that completed are skipped in later ticks until the Parallel itself concludes. And mind the FAILURE default: with `failure_count="1"`, one failing guard kills the whole Parallel — including the still-runs members. If some child is best-effort, wrap it in ForceSuccess (below).' },
           ],
         },
         {
@@ -156,8 +156,8 @@ export default {
           workspace: {
             brief: 'Spin the flywheel (`SpinUp`, 8 ticks) and drive (`Drive`, 10 ticks) **at the same time** with `Parallel success_count="2"`: shoot as soon as BOTH are done.',
             tasks: [
-              'Both children in one Parallel',
-              'success_count="2" (or leave default? no — the default is -1 = all, it works too, but be explicit)',
+              'Both children inside one <Parallel>',
+              'Set success_count="2" (the default is -1 = all children; explicit is clearer)',
               'The tree ends SUCCESS no later than tick 12',
             ],
             startXml: `<root BTCPP_format="4" main_tree_to_execute="Main">
@@ -183,7 +183,7 @@ export default {
             beforeTick: (runner) => scheduler.step(runner),
             validators: [
               { label: 'Both branches ticked in the same run', check: (api) => (api.lastReturnOf('SpinUp') === 'SUCCESS' && api.lastReturnOf('Drive') === 'SUCCESS') || 'both children must finish' },
-              { label: 'runtime overlapped (Drive done by tick 12)', check: (api) => api.tickIndex <= 12 || `run took ${api.tickIndex} ticks — they ran se-quentially, check XML` },
+              { label: 'runtime overlapped (both done by tick 12)', check: (api) => api.tickIndex <= 12 || `run took ${api.tickIndex} ticks — that is sequential behavior, check the XML` },
               { label: 'tree ended SUCCESS', check: (api) => api.status === 'SUCCESS' || `tree ended ${api.status}` },
             ],
             hints: [
@@ -205,7 +205,7 @@ export default {
               ],
               correct: 1,
               explain: 'failure_count wins the instant it is met (it is checked first after the failing child). Defaults exist but you usually spell both thresholds explicitly on the robot.',
-              hint: 'Check the checklist the engine runs after each child: successes-then-failures.',
+              hint: 'After each child, the engine checks the success threshold first, then the failure threshold.',
             },
           ],
         },
@@ -219,15 +219,15 @@ export default {
           kind: 'reading',
           title: 'The eight decorators worth memorizing',
           blocks: [
-            { t: 'table', cols: ['Decorator', 'Do', 'FRC cents'], rows: [
-              ['`Timeout msec="400"`', 'fails a child that is still RUNNING past the ms deadline (poll-based, ms per tick = 50)', 'protect the auto period from hanging branches'],
-              ['`Delay delay_msec="200"`', 'holds the child unticked until ms have first elapsed', 'sequence spacing without extra Script timing'],
-              ['`RetryUntilSuccessful num_attempts="3"` (alias `Retry`)', 're-ticks the child after each FAILURE', 'a janky mechanism gets 2 more chances; -1 = forever'],
-              ['`Repeat num_cycles="4"`', 're-runs the (successful!) child N times', 'periodic sensor polling / shoot bursts'],
-              ['`ForceSuccess`/`ForceFailure`', 'rewrites the child\'s final FAILURE→SUCCESS / SUCCESS→FAILURE', 'audit-shield a best-effort arm'],
-              ['`RunOnce then_skip="true"`', 'SUCCESS on tick 1, SKIPPED after', 'one-time cleanup blocks'],
+            { t: 'table', cols: ['Decorator', 'What it does', 'FRC use'], rows: [
+              ['`Timeout msec="400"`', 'fails the child if it is still RUNNING when the ms deadline passes (poll-based)', 'protect the auto period from hanging branches'],
+              ['`Delay delay_msec="200"`', 'waits the delay before ticking the child the first time', 'spacing without extra Script timing'],
+              ['`RetryUntilSuccessful num_attempts="3"` (alias `Retry`)', 're-ticks the child after each FAILURE; SUCCESS ends it immediately', 'a janky mechanism gets 2 more chances; -1 = forever'],
+              ['`Repeat num_cycles="4"`', 're-runs the child N times after each SUCCESS; a FAILURE ends it', 'periodic sensor polling / shoot bursts'],
+              ['`ForceSuccess` / `ForceFailure`', 'rewrites the final FAILURE→SUCCESS / SUCCESS→FAILURE', 'shield a best-effort step you can live without'],
+              ['`RunOnce then_skip="true"`', 'SUCCESS on tick 1, SKIPPED afterwards', 'one-time cleanup blocks'],
               ['`KeepRunningUntilFailure`', 'converts SUCCESS → RUNNING', 'continuous aim tracking: "stay alive unless the plan broke"'],
-              ['`Inverter`', 'flips SUCCESS/FAILURE', 'reuse a condition with the other polarity'],
+              ['`Inverter`', 'flips SUCCESS/FAILURE', 'reuse a condition with the opposite polarity'],
             ] },
             { t: 'p', md: 'Two facts that catch people (all java/behaviortree-core-verified):' },
             { t: 'list', items: [
@@ -242,7 +242,7 @@ export default {
           kind: 'exercise',
           title: 'Give the shooter a deadline',
           workspace: {
-            brief: 'A misbehaving `Shoot` command (2000 ms sim-nature below means it would hang forever in a tick-limited harness). Wrap it in a `Timeout msec="600"` so the timing cut-out FAILS the branch — the auto can then recover (that recovery comes in the next lesson).',
+            brief: 'A misbehaving `Shoot` command: its default is 2000 ms — an eternity for this exercise, i.e. a hung branch. Wrap it in a `Timeout msec="600"` so the stopwatch FAILS the branch — the route to recovery comes in the next lesson.',
             tasks: [
               'Wrap <Shoot/> in <Timeout msec="600"/>',
               'Tree must end FAILURE (before tick 15) — a hanging child shielded by a deadline',
@@ -272,7 +272,7 @@ export default {
             ],
             hints: [
               '600 ms = the deadline reached on tick 12 with 50 ms simulated ticks.',
-              'Timeout fails the branch when the child is STILL RUNNING at the deadline — the child gets haltChild → command cancel.',
+              'Timeout fails the branch when the child is STILL RUNNING at the deadline — the child is halted (a command mock gets cancelled).',
             ],
           },
         },
@@ -312,7 +312,7 @@ export default {
   <IntakeHungry/>
   <Intake ms="500"/>
 </ReactiveSequence>` },
-            { t: 'p', md: 'When a condition in a ReactiveSequence flips to FAILURE while the running mechanism is mid-action, the mechanism receives an **immediate halt** and the whole sequence returns FAILURE — new plans (Retry, Fallback, whatever is above) react the same tick. rollout got you: this is BT.CPP\'s killer feature for FRC auto resiliency.' },
+            { t: 'p', md: 'When a condition in a ReactiveSequence flips to FAILURE while the mechanism it guards is mid-action, the mechanism receives an **immediate halt** and the sequence returns FAILURE in the SAME tick — so whatever is above it (Retry, Fallback, the auto itself) reacts right away. That same-tick reaction is BT.CPP\'s killer feature for FRC auto resiliency.' },
             { t: 'tip', md: 'Compose recovery in layers: Retry for "the world jitters", Timeout for "this branch hung", Reactive guards for "conditions changed". Each layer protects a different failure geometry.' },
             { t: 'code', lang: 'xml', name: 'XML', file: 'layered.xml', code: `<RetryUntilSuccessful num_attempts="3">
   <Timeout msec="800">
@@ -328,7 +328,7 @@ export default {
           kind: 'exercise',
           title: 'Layered protection: jam-then-recover',
           workspace: {
-            brief: '`Collect` jams during tick 3 (it will go FAILURE) — the auto must **retry up to 3 attempts**. Add a `Retry num_attempts="3"` around Collect *and* verify the Retry falls back out — Wash the jam flag mid-run comes from the harness, exactly like the robot: the Retry gets attempts 2 and 3.',
+            brief: 'This auto must survive a janky mechanism: the `Collect` leaf fails twice (simulated jams) and succeeds on the third start. Without protection a root FAILURE would end the auto — wrap `Collect` in `Retry num_attempts="3"` so the recovery layer drives attempts 2 and 3.',
             tasks: [
               '<Retry num_attempts="3"> around <Collect/>',
               'The run must finish with Collect SUCCESS after 3 attempts',
@@ -372,8 +372,8 @@ export default {
               { label: 'by tick 20', check: (api) => api.tickIndex <= 20 || `ended on tick ${api.tickIndex}` },
             ],
             hints: [
-              'Retry internally re-runs the child as soon as it sees FAILURE, up to (but INCLUDING) num_attempts rounds.',
-              'Collect is a stateful mock modeled on "2 jams then it clears"; leave maxTicks at 40.',
+              'Retry re-ticks its child after each FAILURE, up to num_attempts child-runs in total; only when ALL attempts fail does Retry return FAILURE.',
+              'Collect is a stateful mock modeled on "2 jams, then it clears"; note its own onStart returns FAILURE — that single callback IS the jam.',
             ],
           },
         },

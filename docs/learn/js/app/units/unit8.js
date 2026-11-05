@@ -1,6 +1,5 @@
 // UNIT 8 — The Scripting Language & Conditional Attributes. Operators + precedence (Java-parity:
-// all numbers are doubles, booleans are 1.0/0.0), enums, _, conditional attributes.
-const msOf = (ctx, name, def) => { const r = ctx.tryGetInput(name, 'int'); return r.present ? r.value : def; };
+// all numbers are doubles, booleans are 1.0/0.0), enums, conditional attributes.
 export default {
   id: 8,
   color: '#e8a13c',
@@ -17,19 +16,19 @@ export default {
           blocks: [
             { t: 'p', md: 'The scripting language (from `<Script code=…>`, `ScriptCondition`, `Precondition if=` and the conditional attributes) is an expression language. **Java parity you must internalize:** scripts hold **no integers and no booleans** — every number is a `double`, and logic/comparison results are the doubles `1.0` / `0.0` (`ExprLiteral((double)val)` upstream).' },
             { t: 'table', cols: ['Category', 'Operators', 'Notes'], rows: [
-              ['create / assign', '`:=`  `=`  `+=` `-=` `*=` `/=`', '`:=` creates OR overwrites; plain `=` throws if the entry never existed ("use the operator [:=] instead")'],
-              ['ternary', '`? :`', 'condition truthy by 0/1'],
-              ['or / and', '`||`  `&&`', 'both operands evaluated, result 1.0/0.0'],
-              ['compare + chain', '`==` `!=` `<` `<=` `>` `>=`', 'Python-style chains: `1 < a < 10`; epsilon equality'],
-              ['bitwise', '`|` `^` `&`', 'on the 64-bit mass of the double'],
+              ['create / assign', '`:=`  `=`  `+=` `-=` `*=` `/=`', '`:=` creates OR overwrites; plain `=` throws if the entry never existed ("…use the operator [:=] instead of [=]")'],
+              ['ternary', '`? :`', 'condition truthy by number: 0 is false, anything else is true'],
+              ['or / and', '`||`  `&&`', 'both operands evaluated; the result is 1.0 or 0.0'],
+              ['compare + chain', '`==` `!=` `<` `<=` `>` `>=`', 'Python-style chains (`1 < a < 10`); equality compares with an epsilon'],
+              ['bitwise', '`|` `^` `&`', 'on the 64-bit integer view of the value (Java toInt64 semantics)'],
               ['add/concat', '`+` `-` `..`', '`+` is numbers-only; `..` stringifies both sides ("3.5" .. " m" → "3.5 m")'],
-              ['unary', '`-` `!` `~`', 'negate / 1.0−x / bitwise complement'],
+              ['unary', '`-` `!` `~`', 'negate · logical not (→ 0.0/1.0) · bitwise complement'],
             ] },
             { t: 'code', lang: 'script', name: 'SCRIPT', code: `shots := 0                    // creates shots as double 0
 shots += 2                    // 2.0
-speed := 2.5 * 8              // 20.0  (precedence: * before +/..)
+speed := 2.5 * 8              // 20.0  (precedence: * binds tighter than .. )
 line := 'shots: ' .. shots    // "shots: 2"
-hot := speed > 18 && 1 < 2 < 3  // comparisons chain, both are 1.0 → 1.0
+hot := speed > 18 && 1 < 2 < 3  // comparisons chain; the whole chain yields 1.0
 best := shots > 1 ? 'warm' : 'cold'` },
             { t: 'warn', md: 'NO `%` operator (upstream has none), no template strings, no arrays. Statements are separated by `;` and the LAST value is the script\'s result (what `<ScriptCondition>` actually checks).' },
             { t: 'tip', md: 'Writing `x = 5` on a fresh entry throws on purpose. If you see `Blackboard entry [x] is not initialized… use the operator [:=]`, you wanted `:=`.' },
@@ -134,10 +133,10 @@ at := state == LOADING    // 1.0 (the comparison itself is still a double result
           kind: 'exercise',
           title: 'Drive the state machine',
           workspace: {
-            brief: 'Enums are pre-registered: `IDLE=0`, `COLLECT=1`, `SHOOT=2`. Seed `state := COLLECT`, then a `MoveHead` node that looks at `state` (composer head moves only in COLLECT) — and finally flip `state` to SHOOT so a `Launcher` node fires.',
+            brief: 'Enums are pre-registered in this exercise: `IDLE=0`, `COLLECT=1`, `SHOOT=2`. Seed `state := COLLECT`, run a `MoveHead` node (it moves only in COLLECT), then flip `state` to SHOOT so the `Launcher` node fires.',
             tasks: [
-              'Script: `state := COLLECT` then <MoveHead/>, then `state := SHOOT` then <Launcher/>',
-              'Both deliveries must complete; MoveHead must report DONE=1 (its onHalted sets nothing)',
+              'Order things: `state := COLLECT` → <MoveHead/> → `state := SHOOT` → <Launcher/>',
+              'Both MoveHead and Launcher must complete; the launcher only fires when `state` is SHOOT',
               'The `state` blackboard entry must end as int 2',
             ],
             startXml: `<root BTCPP_format="4" main_tree_to_execute="SM">
@@ -224,31 +223,31 @@ at := state == LOADING    // 1.0 (the comparison itself is still a double result
           title: 'Pre- and post-conditions on ANY node',
           blocks: [
             { t: 'table', cols: ['Attribute', 'When', 'Effect'], rows: [
-              ['`_skipIf="code"`', 'pre, node IDLE/SKIPPED', 'code is truthy → node SKIPPED (unticked)'],
-              ['`_successIf="code"`', 'pre, node IDLE', 'code is truthy → the node instantly SUCCESS without ticking it'],
-              ['`_failureIf="code"`', 'pre, node IDLE', 'code is truthy → FAILURE without ticking'],
+              ['`_skipIf="code"`', 'pre, node IDLE/SKIPPED', 'code truthy → the node is SKIPPED without a tick'],
+              ['`_successIf="code"`', 'pre, node IDLE', 'code truthy → instant SUCCESS without ticking the node'],
+              ['`_failureIf="code"`', 'pre, node IDLE', 'code truthy → FAILURE without ticking'],
               ['`_while="code"`', 'pre, IDLE/RUNNING', 'truthy → run the node this tick. **While RUNNING: false → halt the node and return SKIPPED** — the ONLY conditional that interrupts RUNNING'],
-              ['`_onSuccess="_post code"`', 'post, after SUCCESS', 'runs the code once'],
+              ['`_onSuccess="code"`', 'post, after SUCCESS', 'runs the code once'],
               ['`_onFailure=…`', 'post, after FAILURE', 'runs the code once'],
               ['`_post=…`', 'post, any terminal status', 'runs the code once'],
             ] },
-            { t: 'code', lang: 'xml', name: 'XML', file: 'cond-attrs.xml', code: `<Intake ms="400" _while="gamePieceMissing" _onSuccess="true"/>
+            { t: 'code', lang: 'xml', name: 'XML', file: 'cond-attrs.xml', code: `<Intake _while="gamePieceMissing"/>
 
-<SpinUp BaseActivity rpm="3200" _skipIf="debugMode"/>` },
+<SpinUp rpm="3200" _skipIf="debugMode"/>` },
             { t: 'p', md: 'The evaluation order is fixed (`TreeNode.java`): `_failureIf` → `_successIf` → `_skipIf` → `_while`, each consulted only when the node state allows (IDLE for the skip/force/while-first cases; RUNNING for the interrupting `_while`). Post-conditions run only on a terminal status and once per completing tick.' },
-            { t: 'tip', md: 'Conditional attributes are all SCRIPTS — so small snippets land on the node element itself. Prefer these for noisy wiring (`_skipIf` for a debug mode, `_onSuccess` to record a label) over wrapped decorations with an entirely new path.' },
-            { t: 'code', lang: 'xml', name: 'XML', file: 'tracking-success.xml', code: '<Script code="autonScore := 0"/>\n<Shoot _onSuccess="autonScore := autonScore + 1"/>' },
+            { t: 'tip', md: 'Conditional attributes are full scripts, so small rules live directly on the node element. Prefer them for lightweight wiring (a `_skipIf` debug gate, an `_onSuccess` scoring hook) over building a whole parallel path elsewhere in the tree.' },
+            { t: 'code', lang: 'xml', name: 'XML', file: 'tracking-success.xml', code: '<Script code="autonScore := 0"/>\n<Shoot _onSuccess="autonScore = autonScore + 1"/>' },
           ],
         },
         {
           kind: 'exercise',
           title: 'Gate the mechanism with conditionals',
           workspace: {
-            brief: 'The so-called practice robot: script flags `broken := false` … except it is about 1.10/0.0 in scripts. Build: `<Shoot _skipIf="broken">` — the run must tick Shoot ZERO times but still finish with a clean status. Then the post-attr: bonus score on success of Intake.',
+            brief: 'A practice robot with a canned fault. Scripts have no real booleans — `broken := 1` makes `broken` truthy (1.0). With `_skipIf="broken"` on `Shoot`, the run must tick Shoot ZERO times and still finish cleanly; the post-attribute scores Intake\'s success.',
             tasks: [
               'Seed `broken := 1` BEFORE Shoot',
-              'Add `_skipIf="broken"` on the the Shoot node',
-              'Add `_onSuccess="autonScore := autonScore + 1"` on Intake AND confirm the counter is 1 after success',
+              'Add `_skipIf="broken"` on the Shoot node',
+              'Add `_onSuccess="autonScore = autonScore + 1"` on Intake (seed `autonScore := 0` first) — the counter must read 1',
             ],
             startXml: `<root BTCPP_format="4" main_tree_to_execute="Cond">
   <BehaviorTree ID="Cond">

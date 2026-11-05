@@ -67,7 +67,7 @@ export default {
     if (command != null) CommandScheduler.getInstance().cancel(command);
   }
 }` },
-            { t: 'p', md: 'Why a **fresh instance on every IDLE transition**? A WPILib Command is not meant to be re-scheduled after it ended; the tree may start `Intake` twice per auto, so we demand a new one each time from the supplier. And because scheduling happens through the **CommandScheduler**, stalled subsystem requirements and cancel() interplay keep working exactly like you are used to.' },
+            { t: 'p', md: 'Why a **fresh instance on every start**? A WPILib Command is not meant to be re-scheduled after it ended, and the tree may start `Intake` twice in one auto — so every IDLE→start transition asks the supplier for a new one. And because scheduling happens through the **CommandScheduler**, subsystem-requirement conflicts and `cancel()` still behave exactly the way they do outside the tree.' },
             { t: 'code', lang: 'java', name: 'JAVA', file: 'WpilibNodes.java', code: `WpilibNodes.registerCommandAction(factory, "Intake",
                                   () -> new IntakeCommand(intakeSubsystem));
 // shorthand for:
@@ -154,10 +154,10 @@ export default {
   }
 }` },
             { t: 'list', items: [
-              '\Micro-batching: `execute()` performs ONE `tickOnce()`. The WPILib scheduler cadence (each `robotPeriodic`) is your tick loop — no thread, no sleep.',
-              '`_fpgaTimestamp` is a PRIVATE key written every tick: scripts and custom nodes can measure elapsed time (`time := _fpgaTimestamp`) without dragging WPILib into your node code.',
+              'One tick per scheduler cut: `execute()` runs exactly ONE `tickOnce()` — the WPILib scheduler cadence (`robotPeriodic()`) is the tick loop, no thread, no sleep.',
+              '`_fpgaTimestamp` is a private key written on initialize() and every execute(): scripts and custom nodes can measure elapsed time (`time := _fpgaTimestamp`) without dragging WPILib into your node code.',
               '`isFinished()` matches the ROOT status only — SUCCESS *or* FAILURE both end the command; the tree\'s plan decides how an auto ends.',
-              '`end(interrupted)` → `tree.haltTree()`: every RUNNING leaf (all of them: stateful actions, Command leaves) gets its halt — the crash-safe exit.',
+              '`end(interrupted)` → `tree.haltTree()`: every RUNNING leaf — stateful actions and Command leaves alike — gets its halt. The crash-safe exit.',
             ] },
             { t: 'note', md: 'The simulator\'s Runner implements this exact contract: fresh tree per run, `beforeTick` before each tick (like CommandScheduler.run() before your execute), halt semantics on reset.' },
           ],
@@ -252,7 +252,7 @@ private void attach(TreeNode node, NetworkTable table)
           kind: 'reading',
           title: 'The build brief',
           blocks: [
-            { t: 'p', md: 'Everything from units 1–8, one tree. The robot: **drive from A to B, intake a game piece, aim, and shoot twice through a Timeout shield; the whole plan aborts instantly if the gyro says not-static (reactive guard)**. Mock commands (all `command`-def mocks with ms ports): `DrivePath` (1200 ms), `Intake` (500 ms), `AimFrom` (400 ms, two shots allowed without re-aiming), `Shoot` (250 ms each).' },
+            { t: 'p', md: 'Everything from units 1–8, one tree. The robot: **drive from A to B, intake a game piece, aim, and fire two shots — while a reactive gyro guard watches the drive phase (flip `gyroOk` to 0 in the inspector mid-run and watch the whole plan abort same-tick)**. Mock commands (all `command`-type mocks with `ms` ports): `DrivePath` (1200 ms), `Intake` (500 ms), `AimFrom` (400 ms — memory makes it run once for both shots), `Shoot` (250 ms each).' },
             { t: 'code', lang: 'xml', name: 'XML', file: 'target shape', code: `<root BTCPP_format="4" main_tree_to_execute="Auto">
   <BehaviorTree ID="Auto">
     <Sequence>
@@ -274,11 +274,11 @@ private void attach(TreeNode node, NetworkTable table)
   </BehaviorTree>
 </root>` },
             { t: 'list', items: [
-              'Requirement: BOTH shots happen (Shoot twice), so the Timeout wrapping the pair must allow ~700 ms — the second shot alone is 250.',
-              'Guard: GyroSafe re-asks against `bb.gyroOk` (the sim drops it mid-run only if you tell it to — capstone version does NOT — keep it simple)',
-              'Memory: SequenceWithMemory keeps AimFrom from re-running between the two Shots.',
+              'Requirement: BOTH `<Shoot/>` leaves must run to completion inside the Timeout\'s 700 ms window (2 × 250 ms of work, plus margins).',
+              'Guard: `GyroSafe` re-asks the `gyroOk` entry on every pass of the ReactiveSequence; the harness keeps it true for the graded run.',
+              'Memory: the SequenceWithMemory wrapper keeps `AimFrom` from re-running between the two shots.',
             ] },
-            { t: 'warn', md: 'If `Repeat` lives inside a Timeout deadline too close, a single child run consuming the whole window drops your second shot. Budget: 2×250 ms of Shoot + margins < the Timeout deadline.' },
+            { t: 'warn', md: 'Reminder from unit 6: every decorator — `Timeout` included — has EXACTLY ONE child. To shield a pair of shots, wrap them in a `<Sequence>` first, and put the Sequence inside the Timeout.' },
           ],
         },
         {
@@ -290,7 +290,7 @@ private void attach(TreeNode node, NetworkTable table)
               'ReactiveSequence: GyroSafe + DrivePath(1200 ms)',
               'Intake after driving (500 ms)',
               'THEN: SequenceWithMemory containing AimFrom(400) and a Timeout(700) wrapping a <Sequence> of TWO <Shoot/> leaves (decorators take exactly one child — pair the shots inside a Sequence)',
-              'Plan must end SUCCESS by tick 60 (sim budget ≈ 57)',
+              'Plan must end SUCCESS by tick 60 (the reference solution lands on tick 53)',
             ],
             startXml: `<root BTCPP_format="4" main_tree_to_execute="Auto">
   <BehaviorTree ID="Auto">
@@ -359,7 +359,7 @@ private void attach(TreeNode node, NetworkTable table)
               'Optional: `new NTBehaviorTreeLogger(autonomousTree, …)` + close() when switching to teleop.',
               'New XML between matches: no rebuild — just deploy the file (or keep several `<BehaviorTree>` IDs and switch `main_tree_to_execute` from a dashboard input).',
             ] },
-            { t: 'tip', md: 'This ends the spiral: you went from one XML line to a full deploy pipeline. Keep `AGENT`-fact fidelity notes in mind — the simulator mirrors all of this including type-locks, halts and scripts. Happy roboting!' },
+            { t: 'tip', md: 'That closes the spiral: one XML line in unit 1, a full deploy story now. And the simulator has been faithful the whole way — type-locks, halts, scripts, remaps and the WPILib command lifecycle all mirror `java/behaviortree-core` + `behaviortree-wpilib`. Happy roboting!' },
           ],
         },
         {
@@ -378,14 +378,14 @@ private void attach(TreeNode node, NetworkTable table)
               hint: 'Which part of the system did BehaviorTree.java push into files?',
             },
             {
-              q: 'In the capstone tree, the second Shoot would time out if Timeout msec="550". Why might the FIRST run still succeed?',
+              q: 'In the capstone tree, suppose `Timeout msec="550"` instead of 700. Which description is correct?',
               options: [
-                'the first shot is faster than the deadline — but the second will fail and the branch report FAILURE, losing the fire',
-                'Timeout quietly extends itself',
+                'The first shot may succeed, but the second one risks not finishing before the deadline sweep — the branch reports FAILURE and the fire is lost',
+                'The Timeout quietly extends itself',
                 'Both shots fit in 550 ms due to tick batching',
               ],
               correct: 0,
-              explain: 'The deadline covers the PAIR. First shot 250 ms → fine; the second must fully finish before the deadline sweep. Budget ms carefully (and remember the sim anchor: deadlines measured in 50 ms ticks).',
+              explain: 'The deadline covers the whole subtree (both shots, through the Sequence). Shot #1 at ~250 ms is fine; shot #2 must fully finish before the sweep. Budget the milliseconds deliberately — and remember the sim measures in 50 ms ticks.',
               hint: 'A Timeout protects its whole subtree — recursively.',
             },
           ],

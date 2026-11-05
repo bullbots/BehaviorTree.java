@@ -159,19 +159,28 @@ README.md                   — what it is, how to run the course
 
 ## Known issues / be-suspicious list (from the first draft pass)
 
-Resolved across this build session (keep the list closed unless symptoms reappear):
+Resolved across the build + full-review sessions (keep the list closed unless symptoms reappear):
 - store.js `unitPercent` called the unit object as a function → **fixed in headless pass**
-- pages.js `renderNotFound` was not exported → **fixed**
+- pages.js `renderNotFound` was not exported → **fixed**; UnitComplete overlay double-append guarded
 - workspace.js: pause/stopLoop label restore, duplicated `startLoop`, dead `_lastTouchedUid` gold
-  flash → **fixed** (per-tick highlight now diffs snapshot statuses)
+  flash → **fixed** (per-tick highlight diffs snapshot statuses; baseline resets per runner);
+  single blackboard inspector (root scope, misleading dead code removed)
+- script.js: dead `numA` var removed; **enum names now resolve inside numeric comparisons too**
+  (`led == BLUE` with enums — Java `ScriptValues.stringToDouble(env)` parity; smoke case added)
+- script.js: `%` removed (Java has none); comparisons evaluate to 1.0/0.0; `&&`/`||` evaluate
+  both operands; `..` stringify prints whole doubles as integers (Java toStringValue parity)
 - u6/u8/u9 exercise design bugs found by `_validate.mjs` → all fixed (missing beforeTick stepping,
   duplicate node names in tallies, wrong ref arithmetic, `Timeout` one-child rule in capstone)
 - unit6 Parallel table numeric cell crashed mdInline → **fixed**
+- **Writing review (Nov 2026):** all editorial defects in units 1–9 fixed — garbled sentences,
+  typos ("Series", "skiped", "spinnning", "robber periods"), invented words (`ScheduledPriority`,
+  `ToolBox`, `PortsList.of` in samples), self-contradicting hints, mismatched validator labels,
+  one factually wrong blackboard quiz (script seeds declare Doubles → retargeted the quiz to the
+  SetBlackboard Integer path), unit-7 remap example corrected (inside the subtree you read the
+  INTERNAL name; the redirection lands it on the parent key)
 
 Still open (subjective, user-testing tier):
-- Dark-mode contrast nits, perfect quiz retry feel, UnitComplete overlay id-collision when
-  pressed twice quickly (cosmetic; rendering verified once), `highlight.js` script-mode regex
-  edge cases on unusual scripts (only cosmetic).
+- Dark-mode contrast nits, quiz retry feel, `highlight.js` cosmetic regex edge cases.
 
 ## Fidelity ledger (engine vs the Java port — verified while building units)
 
@@ -287,13 +296,15 @@ export default {
 - Mock robot: content supplies it inside `nodes` definitions; use `ctx.log('[Drive] moving…')`.
 - Command-mock lifecycle needs a `beforeTick` that steps a module `scheduler` — several unit
   files carry the pattern verbatim; copy it or use self-ticking `stateful` mocks.
-- All blackboard values visible in inspector, `@key` shows under root.
+- All blackboard values visible in inspector (ROOT blackboard only — subtree-local entries need
+  `@key`/autoremap to be seen, exactly what unit 7 teaches).
 - Validators: prefer `ticksOf`/`lastReturnOf` (statuses RESET when parents complete — `statusOf`
   shows IDLE for finished children after the run; `lastReturnOf` is the reliable one). Sum tallies
-  by name when leaves share a registration name.
+  by name when leaves share a registration name, or give every same-kind leaf a distinct `name=`.
 - Chained comparisons are Python-style returning doubles; scripts never lock booleans (they have
-  none); enums lock as int; script numbers lock as double (Java parity).
-- `Timeout`/`Delay`/`Retry`/... all have EXACTLY ONE child — wrap pairs in a `<Sequence>`.
+  none); enums lock as int; script numbers lock as double; enum names resolve inside numeric
+  comparisons too (Java stringToDouble parity).
+- `Timeout`/`Delay`/`Retry`/… every decorator has EXACTLY ONE child — wrap pairs in a `<Sequence>`.
 
 ## Git notes
 

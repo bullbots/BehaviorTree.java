@@ -43,7 +43,7 @@ export default {
           kind: 'reading',
           title: 'Meet the tree',
           blocks: [
-            { t: 'p', md: 'FRC robot code has traditionally been written as **subsystems + commands** — a state machine the scheduler walks every 20 ms. That works beautifully for driver-controlled teleop. But an **autonomous routine** is a plan: *do A, if it fails do B, keep trying C until timeout…*. Describing that as a heap of `ScheduledPriority`-isms gets tangled fast.' },
+            { t: 'p', md: 'FRC robot code has traditionally been written as **subsystems + commands** — a small state machine the scheduler walks every 20 ms. That works beautifully for driver-controlled teleop. But an **autonomous routine** is a plan: *do A, if it fails do B, keep trying C until timeout…*. Growing that into a pile of special-case commands and priority hacks gets tangled fast.' },
             { t: 'p', md: 'A **behavior tree** describes that plan as a tree. Leaves do things (actions, run commands, check conditions); interior nodes make decisions (sequence, pick-an-alternative, run-in-parallel). The tree is **data**: it lives in an XML file, can be edited without recompiling, and the same engine walks any tree you give it.' },
             { t: 'h', text: 'Three kinds of nodes', level: 2 },
             { t: 'list', items: [
@@ -67,9 +67,9 @@ export default {
         },
         {
           kind: 'reading',
-          title: 'NodeStatus — the only four outcomes that matter',
+          title: 'NodeStatus — the vocabulary of every tick',
           blocks: [
-            { t: 'p', md: 'Every node, on every tick, reports one of the same five statuses — `Enum` `NodeStatus`:' },
+            { t: 'p', md: 'Every node, on every tick, reports one `NodeStatus` enum value — the same five for every node in the tree:' },
             { t: 'table', cols: ['Status', 'Meaning', 'Tick again before that?'], rows: [
               ['**SUCCESS**', 'the work is done', 'no — this pass is over'],
               ['**FAILURE**', 'the work did not happen', 'no — but a parent may react (retry, pick another child)'],
@@ -78,7 +78,7 @@ export default {
               ['**IDLE**', 'internal: never ticked yet', 'n/a — you never see a well-behaved node return this'],
             ] },
             { t: 'p', md: 'That is the whole contract. **RUNNING is the only status that carries work across ticks.** A `Sequence` ticks child 1; if it is RUNNING, the whole sequence is RUNNING and child 2 has not even been looked at. Next tick the sequence resumes exactly where it was.' },
-            { t: 'note', md: 'Why not just `boolean done()`? Because "the intake is spinnning, 2/3 done" IS a step of a plan, not an instant event. RUNNING turns plans into step-by-step progress.' },
+            { t: 'note', md: 'Why not just `boolean done()`? Because "the intake is spinning, halfway there" IS a state of a plan, not an instant event. RUNNING turns plans into step-by-step progress. (And why not throw exceptions for "it failed"? Because failure is a normal, expected answer in a plan — the tree reacts to it, it does not crash on it.)' },
             { t: 'p', md: 'Conditions are different: a `ConditionNode` **must not return RUNNING**. It is an instant question — `SUCCESS` (condition holds now) or `FAILURE` (it does not). This is enforced by the Java base class design and you will rely on it constantly in `ReactiveSequence`.' },
           ],
         },
@@ -117,7 +117,7 @@ export default {
                 'WPILib requires the .xml extension',
               ],
               correct: 1,
-              explain: 'The factory walks ANY tree from text. Team programmers keep their node library in Java, while drivers/analysts can tune the routine XML-to-deploy between matches.',
+              explain: 'The factory walks ANY tree from text. Team programmers keep their node library in Java, while the gameplay team can tune the routine in XML and re-deploy between matches.',
               hint: 'Think about how gameplay teams adjust an auto right before a match.',
             },
           ],
@@ -147,14 +147,14 @@ export default {
   public NodeStatus tickWhileRunning(long sleepMillis) { ... }
   public void haltTree() { ... }
 }` },
-            { t: 'p', md: 'Each node visit runs through `executeTick()`, which — **always the same three steps**:' },
+            { t: 'p', md: 'Each node visit runs through `executeTick()` — which always performs the same three steps:' },
             { t: 'list', items: [
-              'evaluate the node\'s **pre-condition scripts** (`_skipIf`, `_successIf`, `_while` — unit 8), which can shortcut the whole tick assignment',
+              'evaluate the node\'s **pre-condition scripts** (`_skipIf`, `_successIf`, `_while` — unit 8), which can bypass the node\'s tick entirely',
               'call the node\'s own `tick()`',
               'evaluate **post-condition scripts** (`_onSuccess`, `_onFailure`, `_post`) and set the node\'s status',
             ] },
-            { t: 'note', md: 'One important subsystem behavior: when a node returns SKIPPED, its internal status stays IDLE — it is "as if it were not in the tree". Only visited real ticks come afterwards the caller.' },
-            { t: 'p', md: 'In the simulator below, one **tick = 50 simulated ms**. Press **Step 1 tick** a few times and watch the running node light up; then press **Run** and let it finish. The tree here is: `Sequence` → (`Punch`, `Retract`). Punch finishes instantly (SUCCESS), then Retract takes 3 ticks (RUNNING, RUNNING, SUCCESS), and only then does the whole Series report SUCCESS.' },
+            { t: 'note', md: 'One detail with teeth: when a node returns SKIPPED, its internal status stays IDLE — it really is "as if it were not in the tree". No post-conditions run, and a parent simply moves past it.' },
+            { t: 'p', md: 'In the simulator below, one **tick = 50 simulated ms**. Press **Step 1 tick** a few times and watch the running node light up; then press **Run** and let it finish. The tree here is: `Sequence` → (`Punch`, `Retract`). Punch finishes instantly (SUCCESS), then Retract takes 3 ticks (RUNNING, RUNNING, SUCCESS), and only then does the whole Sequence report SUCCESS.' },
           ],
         },
         {
@@ -163,7 +163,7 @@ export default {
           workspace: {
             brief: 'This is a **simulated mechanism** with two stateful actions. **Step** through the first ~6 ticks and watch each node\'s status pill update as it runs; then press **Run** and let the plan complete. The grader reruns everything itself — the buttons are for observation.',
             tasks: [
-              'Press Step until Retract is RUNNING (watch the tab info colors)',
+              'Press Step until Retract shows a blue RUNNING pill (two of them), then SUCCESS',
               'Press Run — the tree finishes to SUCCESS',
               'Run & check to confirm you saw the whole plan',
             ],
@@ -210,11 +210,11 @@ export default {
           title: 'Check yourself',
           questions: [
             {
-              q: 'Your tree has one tick available per periodic cycle. If `Retract` returns RUNNING 3 times, how many scheduler cuts have elapsed before the tree completes?',
+              q: 'In the Punch ↔ Retract tree from the reading: Punch finished on tick 1, Retract returns RUNNING on ticks 2 and 3, and SUCCESS on tick 4. How many scheduler cuts (ticks) did the tree consume?',
               options: ['1', '3', '4', 'depends on the blackboard'],
               correct: 2,
-              explain: 'Retract runs over 3 ticks ON TOP of the tick where Punch finished (and Retract first returns RUNNING). Autonomous time budget ≠ ticks of state, plan accordingly.',
-              hint: 'Count every tick, including the one where anything else succeeded before.',
+              explain: 'Every visit is one scheduler cut: 1 for Punch + 3 for Retract (two RUNNING passes and its SUCCESS) = 4 total. Autonomous time is a budget of these cuts — plan step durations accordingly.',
+              hint: 'Count every tick the tree ran, including the one where a step finishes.',
             },
           ],
         },

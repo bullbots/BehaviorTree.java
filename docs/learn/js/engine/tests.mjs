@@ -40,6 +40,11 @@ ok('booleans are 0.0/1.0 doubles (Java parity)', () => {
   eq(parseScript('false || true').evaluate(bb, {}), 1);
   eq(parseScript('3 > 1 && 2 > 1').evaluate(bb, {}), 1);
 });
+ok('mixed compare: numeric entry vs enum name (Java stringToDouble path)', () => {
+  const bb = Blackboard.create();
+  bb.set('led', 3);
+  eq(parseScript('led == BLUE').evaluate(bb, { BLUE: 3 }), 1);
+});
 ok('string concat .. and quoted?', () => {
   const bb = Blackboard.create();
   eq(parseScript(`msg := 'hello' .. ' ' .. 'world'`).evaluate(bb, {}), 'hello world');

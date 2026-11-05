@@ -45,12 +45,12 @@ export default {
 
   <BehaviorTree ID="ShootRoutine">
     <Sequence>
-      <SpinTo target_rpm="{finalRpm}"/>
+      <SpinTo target_rpm="{rpm}"/>   <!-- reads the subtree-internal name; the remap does the rest -->
       <Shoot/>
     </Sequence>
   </BehaviorTree>
 </root>` },
-            { t: 'p', md: 'Look carefully at `rpm="{finalRpm}"` on the SubTree element: the SHOOTROUTINE-internal name (`rpm`... spelling shown normalized as {finalRpm} in this example) is **remapped** to the parent\'s key. Inside the subtree, SpinTo reads `{finalRpm}`; outside the parent writes it first. Every port listed on the SubTree element becomes a **redirection**, not a value:' },
+            { t: 'p', md: 'Look carefully at the SubTree element: `rpm="{finalRpm}"`. The attribute **name** (`rpm`) is the subtree-internal port name; its **value** (`{finalRpm}`) names the parent\'s entry. Inside ShootRoutine, `SpinTo` keeps reading its own `{rpm}` — the redirection lands that read on the parent\'s `finalRpm`. Every attribute listed on a `<SubTree>` element becomes a **redirection**, not a value:' },
             { t: 'table', cols: ['XML on <SubTree>', 'Meaning'], rows: [
               ['`param="{myParam}"`', 'subtree\'s `param` ↔ parent\'s `myParam` entry'],
               ['`param="{=}"`', 'shorthand: use the SAME NAME in the parent (param ↔ param)'],
@@ -64,7 +64,7 @@ export default {
           kind: 'exercise',
           title: 'Split a plan into a subtree',
           workspace: {
-            brief: 'The pickup piece (`Intake` then `Clamp`) must move into a `<BehaviorTree ID="PickupRoutine">` and the Main tree must call it remapped: the subtree\'s `intake_ms` comes from the parent\'s entry `speed_setting` (a literal-snapshot is NOT allowed — the driver tunes it between matches).',
+            brief: 'The pickup piece (`Intake` then `Clamp`) must move into a `<BehaviorTree ID="PickupRoutine">`, and `Main` must call it remapped: the subtree\'s `intake_ms` must live-read the parent\'s entry `intakeCfg` (a literal snapshot is NOT allowed — the driver tunes this value between matches).',
             tasks: [
               'Create the PickupRoutine BehaviorTree with <Intake intake_ms="{intakeCfg}"/><Clamp/>',
               'In Main: <SubTree ID="PickupRoutine" intake_ms="{intakeCfg}"/>',
@@ -116,7 +116,7 @@ export default {
             hints: [
               'Ports on the SubTree element are redirections: intake_ms points at the same-named parent key.',
               'The subtree\'s own Intake reads its OWN port name (intake_ms) — same name in both places with the default route.',
-              'The subtree has its OWN blackboard — a `@key` script prefix (or `ctx.blackboard.set(...)`) is the sim\'s note for "store on the root blackboard so the parent sees it".',
+              'The subtree has its OWN blackboard, chained under the parent\'s. To write where the CALLER can see a value, use the `@key` root escape — the provided `Clamp` mock stores `@clamped` on the root blackboard for exactly that reason.',
             ],
           },
         },
@@ -164,7 +164,7 @@ export default {
           kind: 'exercise',
           title: 'Autoremap a TuneRoutine',
           workspace: {
-            brief: 'A tuning subtree reads `rpm` and returns a `gain` — build the subtree with `<SubTree ID="Tune" _autoremap="1"/>` and NO other attributes. The Tune subtree — write `gain := rpm / 100` inside it (parent first seeds rpm := 250).',
+            brief: 'A tuning subtree reads `rpm` and writes `gain`. Declare it in Main with `<SubTree ID="Tune" _autoremap="1"/>` — no other attributes — and let the subtree\'s script (inside the Tune tree) do `gain := rpm / 100`. The parent seeds `rpm := 250` first.',
             tasks: [
               'Define <BehaviorTree ID="Tune"> containing a <Script code="gain := rpm / 100"/> that reads parent\'s rpm with NO explicit remaps',
               'Main: <Script code="rpm := 250"/> then <SubTree ID="Tune" _autoremap="1"/>',
@@ -255,22 +255,22 @@ export default {
   </BehaviorTree>
 </root>` },
             { t: 'list', items: [
-              'A `SubTree` entry that declares an `input_port` WITHOUT a `default` becomes **mandatory**: omitting it on the call site fails at BUILD time — the same protection ToolBox gives you in BT.CPP.',
-              'With a `default`, the call-site omission is legal; the engine creates the child entry with the default.',
-              'Node ports (leaf actions) have their equivalents inside a TreeNodesModel too — `<Action ID="Intake"><input_port name="ms" default="300"/></Action>` — the factory uses these for the same early-wiring checks on leaf invocations.',
+              'A `SubTree` entry that declares an `input_port` WITHOUT a `default` becomes **mandatory**: omitting it at a call site fails at BUILD time — the early protection BT.CPP tooling gives you upstream.',
+              'With a `default`, omission is legal; the engine creates the child entry holding the default.',
+              'Leaf actions can be described in a TreeNodesModel too (`<Action ID="Intake"><input_port name="ms" default="300"/></Action>`) — tooling reads it; the runtime-level checks this course leans on are the SubTree mandatory-port ones.',
             ] },
             { t: 'p', md: 'Organizing bigger documents:' },
             { t: 'list', items: [
-              'One file per major routine + subtrees in the same file (there is no `<include>` in this port — deliberately absent as a fingerprint that upstream removed the external-deps surface thinking compound; the sim\'s <include> does NOT exist — put all trees in one document).',
-              'keep main_tree_to_execute LAST or FIRST — teammates should never guess the entry point.',
-              'Name nodes that matter (`name="EmergencyStop"`) — the full path shows in logs and in the NTBehaviorTreeLogger (unit 9).',
+              'There is **no `<include>`** in this port — deliberately: it keeps every tree self-contained. Put all definitions of a document in one file.',
+              'Never leave `main_tree_to_execute` implicit once a file holds more than one `<BehaviorTree>` — teammates should not have to guess the entry point.',
+              'Give important nodes names (`name="EmergencyStop"`) — the full path shows in online logs and in the NTBehaviorTreeLogger (unit 9), making live debugging far easier.',
             ] },
             { t: 'code', lang: 'java', name: 'JAVA', file: 'Java side', code: `factory.registerBehaviorTreeFromFile(Path.of("deploy", "autonomous.xml"));
 factory.registerBehaviorTreeFromFile(Path.of("deploy", "parking.xml"));
+// both files' <BehaviorTree> IDs are now catalogued in this factory:
 
-Tree autoA       = factory.createTree("ParaMainMain");      // entry id
-Tree parkingBack = factory.createTree("ParkOnlyMain");       // same factory, different root
-// (entries must have been registered first: same corpus semantics as BT.CPP)` },
+Tree autoA       = factory.createTree("AutoMain");     // build by registered ID
+Tree parkingBack = factory.createTree("ParkOnlyMain"); // same factory, different root` },
           ],
         },
         {

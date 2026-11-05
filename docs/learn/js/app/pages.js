@@ -220,8 +220,11 @@ function renderQuiz(body, item, onDone, keyPrefix) {
 
 /* -------- unit celebration -------- */
 function renderUnitComplete(unit) {
+  // guard against stacking two overlays (double-click on "Unit finish")
+  if (document.getElementById('unit-complete')) return;
   const done = document.createElement('div');
   done.className = 'lesson-complete';
+  done.id = 'unit-complete';
   done.style.marginTop = '-8px';
   done.innerHTML = `<div class="big-check">✓</div>
     <div><h3>Unit ${unit.id} lessons finished!</h3>

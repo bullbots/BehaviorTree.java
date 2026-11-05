@@ -108,8 +108,8 @@ export default {
             hints: [
               '`mai_tree_to_execute` → the real attribute is `main_tree_to_execute`.',
               '`Sequance` → `Sequence`. Registered IDs are case-sensitive and spelled in English!',
-              'The action ID `CoolShooter` is not registered anywhere; the registered ID here is `Shoot` (its `ms` port is optional).',
-              '<Shoot ms="...">' + ' would be rejected — Shoot declares no ports at all.',
+              'The action ID `CoolShooter` is not registered anywhere — the registered ID here is `Shoot`.',
+              '<Shoot/> needs no attributes at all: its `ms` port has a default, so plain `<Shoot/>` is legal.',
             ],
           },
         },
@@ -126,7 +126,7 @@ export default {
                 'Extra whitespace and comments between elements',
               ],
               correct: 2,
-              explain: 'A BehaviorTree must have exactly ONE root child — siblings are a build error (that is a uniqueness guarantee the parser also enforces on <root>, entirely by design like BT.CPP).',
+              explain: 'A BehaviorTree must have exactly ONE root child — two siblings don\'t define "the tree", and the parser rejects it at build time (upstream BT.CPP does the same).',
               hint: 'Think about what "the tree" means: exactly one starting point.',
             },
           ],
@@ -144,12 +144,12 @@ export default {
             { t: 'p', md: '`<Intake/>` is syntax sugar for an **explicit class tag**. These two are identical to the parser:' },
             { t: 'code', lang: 'xml', name: 'XML', file: 'two spellings', code: `<Action ID="Intake" name="take_game_piece"/>   <!-- explicit -->
 <Intake name="take_game_piece"/>                    <!-- compact -->` },
-            { t: 'p', md: 'Explicit tags don\'t even imply the node type — `<Action>`, `<Condition>`, `<Control>`, `<Decorator>` route through the same registration lookup by `ID`. They matter when an XML generator (or subtree loader) is laying out nodes with a fixed template, and they make an XML "node-type-agnostic".' },
-            { t: 'table', cols: ['Shorthand', 'Equivalent'], rows: [
-              ['<Foo/>', '<Action ID="Foo"/> (allocated NodeClass by type — the factory infers ACTION if Foo is not a control)… except control builtins: <Sequence/> is also written compactly'],
+            { t: 'p', md: 'Explicit tags don\'t imply the node type by themselves — `<Action>`, `<Condition>`, `<Control>`, `<Decorator>` all route through the same registration lookup by `ID`. They matter when an XML generator or strict template lays out nodes mechanically, where a uniform tag shape helps.' },
+            { t: 'table', cols: ['Compact', 'Explicit (identical node)'], rows: [
+              ['<Intake/>', '<Action ID="Intake"/>'],
               ['<BallLoaded/>', '<Condition ID="BallLoaded"/>'],
               ['<Fallback>', '<Control ID="Fallback">'],
-              ['<RetryUntilSuccessful>', '<Decorator ID="RetryUntilSuccessful"> (also aliased <Retry>)'],
+              ['<Retry num_attempts="3"/>', '<Decorator ID="RetryUntilSuccessful" num_attempts="3"/> (Retry is an alias)'],
             ] },
             { t: 'note', md: 'Node **names** are optional. Without `name="…"`, a node is named after its registration ID — its generated full path is like `root/Sequence/Intake`.' },
           ],
@@ -189,8 +189,8 @@ export default {
     <Intake ms="400"/>
   </Sequence>
 </Fallback>` },
-            { t: 'p', md: 'Read that as: "if a ball is already loaded, we\'re done. Otherwise drive over and grab one." Make sure you never bury a slow-moving action directly in a Fallback *without* a cheapskate condition first — every FAILURE of the first candidate re-ticks candidates from the start. Driving backwards can happen.' },
-            { t: 'tip', md: 'DO put cheap conditions first. DO sequence "costly to recover" actions early in a Sequence. DON\'T put two commands both mutating the same subsystem inside one Fallback — a Fallback might tick both alternately across ticks.' },
+            { t: 'p', md: 'Read that as: "if a ball is already loaded, we\'re done; otherwise drive over and grab one." A caution for later: with a **plain** `Fallback`, once child 2 returns RUNNING the fallback is committed — earlier siblings are not re-asked while the plan runs (the reactive variant changes that; unit 6). If your `BallLoaded` can flip mid-plan, that timing behavior is something you must decide on deliberately, not by accident.' },
+            { t: 'tip', md: 'DO put cheap conditions first — they get answered on every candidate scan. DON\'T put two commands that both mutate the same subsystem on sibling Fallback branches: over a long run the Fallback may work through them alternately, and mechanisms hate being toggled mid-travel.' },
           ],
         },
         {
@@ -245,15 +245,15 @@ export default {
           title: 'Check yourself',
           questions: [
             {
-              q: 'A wants-shoot tree is `<Fallback><BallLoaded/><Sequence><DriveTo/><Intake/></Sequence></Fallback>`. `BallLoaded` FAILS; the sequence ticks, `DriveTo` returns RUNNING. When does `BallLoaded` get asked again?',
+              q: 'A pickup tree: `<Fallback><BallLoaded/><Sequence><DriveTo/><Intake/></Sequence></Fallback>`. `BallLoaded` FAILS; the sequence ticks, `DriveTo` returns RUNNING. When is `BallLoaded` asked again?',
               options: [
                 'Every tick, even while DriveTo is RUNNING',
-                'Never again — the Fallback committed to child 2',
+                'Never again while this Fallback pass is alive — it committed to the RUNNING child',
                 'When DriveTo eventually succeeds',
               ],
               correct: 1,
-              explain: 'That is plain Fallback: once a RUNNING child owns the tick, earlier siblings are skiped entirely. Re-asking while a plan runs is the job of the REACTIVE variant — unit 6.',
-              hint: 'A "plain" Fallback commits; only reactive siblings re-evaluate continuously.',
+              explain: 'Plain Fallback commits: once a child returns RUNNING, earlier siblings are skipped entirely — a plain Sequence works the same way. Re-asking every tick is a different node (ReactiveFallback — unit 6).',
+              hint: 'A "plain" Fallback commits; only reactive variants re-evaluate continuously.',
             },
           ],
         },
@@ -272,11 +272,10 @@ factory.registerNodeType("DriveTo", MyDriveNode.class);    // your custom nodes 
 
 Tree tree = factory.createTreeFromFile(Path.of("deploy", "auto_pickup.xml"));
 
-NodeStatus s = tree.tickOnce();        // one step — exactly what WPILib does per periodic
-while (s == NodeStatus.RUNNING) {
-    s = tree.tickWhileRunning(20);     // same, but sleeps approx sleepMillis between ticks
-}
-tree.haltTree();                       // force any still-RUNNING node (and its children) to stop` },
+NodeStatus s = tree.tickOnce();   // one step — exactly what WPILib does per periodic
+// (in a standalone test you'd usually just call:
+//     tree.tickWhileRunning(20); // keeps ticking while RUNNING, ~20 ms sleep between ticks)
+tree.haltTree();                  // force any still-RUNNING node (and its children) to stop` },
             { t: 'list', items: [
               '`tickOnce()` — one traversal; the right call inside a Wpilib periodic loop, because *you* decide the cadence.',
               '`tickWhileRunning(ms)` — convenience for quick standalone tests: keeps ticking while the root is RUNNING, sleeping between ticks. The Java port keeps it because BT.CPP has it; on an FRC robot you would normally use a separate thread instead.',
@@ -313,7 +312,7 @@ tree.haltTree();                       // force any still-RUNNING node (and its 
                 'register… is for arrays of trees; create… for single-tree files',
               ],
               correct: 1,
-              explain: 'register*() adds tree definitions into the factory (subtree usable later by ID); create*() goes all the way to a instantiated Tree.',
+              explain: 'register*() adds tree definitions into the factory (usable later by ID from a SubTree); create*() builds a ready-to-tick Tree.',
               hint: 'One of them is a database, the other is a product.',
             },
           ],

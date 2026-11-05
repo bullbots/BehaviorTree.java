@@ -1,7 +1,6 @@
 // UNIT 3 — Your Own Nodes (Java). Real SyncActionNode subclasses, the (String, NodeConfig) ctor,
 // providedPorts()/Port.list, registerNodeType by reflection, SimpleActionNode lambdas, and the
 // ConditionNode rules.
-const msOf = () => 0; // (ports helpers added where exercises need them; unit 3 exercises are XML-port focused)
 export default {
   id: 3,
   color: '#7a5ef0',
@@ -92,20 +91,20 @@ export default {
       Port.input(String.class, "name", "drive"));
 }` },
             { t: 'table', cols: ['Piece', 'Meaning'], rows: [
-              ['`Port.input(Type, name)`', 'reads at tick time — direction IN grows the mandatory-port checking story'],
-              ['`Port.input(Type, name, default, desc)`', 'shows a default in the manifest; passing the port in XML becomes optional'],
-              ['`Port.output(Type, name, desc)`', 'the node writes: XML must bind it to a blackboard pointer `{key}`'],
-              ['`Port.inout(...)`', 'reads AND writes (e.g. unit-7 style queues)'],
+              ['`Port.input(Type, name)`', 'an input the node reads at tick time — with no default it becomes a mandatory port'],
+              ['`Port.input(Type, name, default, desc)`', 'a default goes into the manifest; passing the port in XML becomes optional'],
+              ['`Port.output(Type, name, desc)`', 'the node writes it: XML must bind it to a blackboard pointer `"{key}"`'],
+              ['`Port.inout(...)`', 'reads AND writes (unit-7-style queues live on such ports)'],
             ] },
-            { t: 'p', md: 'Under the hood every node has a `NodeConfig` per instance with three keyed bags: `inputPorts`, `outputPorts` and `otherAttributes`. The factory classifies the XML attributes for you: an attribute that names a **declared input** becomes a port literal-or-pointer; renaming an **output** to something not declared {pointer} gets an error; spelling an attribute the node never declared is an XML build error — exactly like upstream.' },
-            { t: 'p', md: 'In the simulator you\'ll meet Java ports all the time: exercise "nodes" live as a JAVALIKE manifest + one JS function per behavior. Try it below: the `MoveBy` node wants one `distance` input and reports one `arrived` output — your XML needs both, wired through the blackboard.' },
+            { t: 'p', md: 'Under the hood every node instance carries a `NodeConfig` with three keyed bags: `inputPorts`, `outputPorts` and `otherAttributes`. The factory classifies XML attributes for you: an attribute naming a **declared input** becomes a literal-or-pointer port value; an **output** attribute not bound to a `{pointer}` is rejected the moment the node writes it ("setOutput requires a blackboard pointer"); and an attribute the node never declared fails the build outright — exactly like upstream.' },
+            { t: 'p', md: 'In the simulator you will build this exact shape constantly: exercise "nodes" pair a ports manifest with one JS function per hook — the same surface as the Java class minus the compilation. Try it below: `MoveBy` wants one `distance` input and reports one `arrived` output; your XML needs both, wired through the blackboard.' },
           ],
         },
         {
           kind: 'exercise',
           title: 'Wire a custom node\'s ports',
           workspace: {
-            brief: 'The robot has the custom `MoveBy` action (below in your task list). Its ports: **input `distance`** (double, meters), **output `arrived`** (written once the move ends). Wire it so the tree reads the literal `2.5` (meters), and binds `arrived` to a blackboard key.',
+            brief: 'The robot has the custom `MoveBy` action defined below. Its ports: **input `distance`** (double, meters) and **output `arrived`** (written once the move ends). Wire it so the tree passes the literal `2.5` (meters), and binds `arrived` to a blackboard key.',
             tasks: [
               'Instantiate <MoveBy distance="2.5" arrived="{arrived}"/>',
               'Keep main_tree_to_execute="Main"',
@@ -135,12 +134,12 @@ export default {
               },
             },
             validators: [
-              { label: 'input port parsed as double 2.5', check: (api) => api.get('arrived') === true || 'arrived must end up true on the blackboard' },
+              { label: 'arrived written true to the blackboard via {pointer}', check: (api) => api.get('arrived') === true || 'arrived must end up true on the blackboard' },
               { label: 'tree ended SUCCESS', check: (api) => api.status === 'SUCCESS' || `tree ended ${api.status}` },
             ],
             hints: [
-              'Output ports are XML attributes in brackets: arrived="{arrived}".',
-              'Literals keep type info going in — distance="2.5" parses as double like Java\'s Conversion pipeline.',
+              'Output ports are XML attributes bound in braces: arrived="{arrived}".',
+              'Literals keep type info going in — distance="2.5" parses as a double like Java\'s conversion pipeline.',
             ],
           },
         },
@@ -183,7 +182,7 @@ factory.registerSimpleAction("Print", (TreeNode n) -> {
 factory.registerSimpleCondition("BallLoaded", (TreeNode n) ->
     intakeSubsystem.hasNote() ? NodeStatus.SUCCESS : NodeStatus.FAILURE);
 
-factory.registerNodeType("OVerload", PortsList.of(),
+factory.registerNodeType("FullBuilder", new PortsList(),
     NodeType.ACTION,
     (name, config) -> new SyncActionNode(name, config) { ... });  // full builder escape hatch` },
             { t: 'list', items: [
