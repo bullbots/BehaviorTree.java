@@ -318,17 +318,21 @@ export default {
 ## Git notes
 
 - Repo root = upstream C++ BehaviorTree.CPP checkout; **never touch paths outside `docs/learn`
-  and `AGENT.md`** (except reading them). Past mistake guard: do not `git add -A`.
+  (and its `wrangler.toml` for the Cloudflare deploy), `AGENT.md`, and the root `wrangler.toml`**
+  (except reading them). Past mistake guard: do not `git add -A`.
 - ✅ Remotes (per user decision, Nov 2026): **origin is a push mirror** — every
   `git push origin master` lands on BOTH
   `https://github.com/snowdriftdev/BehaviorTree.java.git` (fetch + push) and
   `https://github.com/bullbots/BehaviorTree.java.git` (second push URL — verify with
   `git remote -v`, which lists two "push" lines). Keep the repos in lockstep: never push to one
   and not the other. If a push to one fails, ask which repo is authoritative before diverging.
-- **Hosting**: Cloudflare (Pages/Workers Build) — build root `/docs/learn`, deploy command
-  `npx wrangler deploy`. `docs/learn/wrangler.toml` configures the static-asset deploy; its
-  `name` MUST equal the Cloudflare project name or wrangler creates a new worker instead.
-  Live at `behaviortree.bullbots.site`.
+- **Hosting**: Cloudflare (Pages/Workers Build) — build runs `npx wrangler deploy` **from the
+  repo root** (log: "Processing /opt/buildhome/repo"), so the effective config is the
+  ROOT-level `wrangler.toml` with `[assets] directory = "./docs/learn"` (added after two failed
+  builds proved the docs/learn-level toml + "root folder = /docs/learn" UI setting do NOT change
+  the build cwd). Its `name` MUST equal the Cloudflare project name or wrangler creates a new
+  worker instead of updating the existing one. Live at `behaviortree.bullbots.site`.
+  `docs/learn/wrangler.toml` is kept in sync (harmless duplicate for run-from-that-dir setups).
 - First working commit landed on `master` as `eee5931` (21 files, docs/learn shell+engine+workspace).
 - Commit before push at the end of each working session with the pattern:
   `git add AGENT.md docs/learn && git commit -m "learn: …"` → `git push`.
