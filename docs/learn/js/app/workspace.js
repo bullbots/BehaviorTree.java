@@ -73,9 +73,14 @@ export function renderExercise(body, item, finish, page) {
   edArea.value = cfg.startXml || '';
   edWrap.appendChild(edPre); edWrap.appendChild(edArea);
   editorPane.appendChild(edHead); editorPane.appendChild(edWrap);
-  const syncHl = () => { edPre.innerHTML = highlight(edArea.value + '\n', 'xml'); };
+  edArea.wrap = 'off'; // must behave exactly like the <pre> (white-space: pre) so lines never diverge
+  const syncScroll = () => { edPre.scrollTop = edArea.scrollTop; edPre.scrollLeft = edArea.scrollLeft; };
+  const syncHl = () => {
+    edPre.innerHTML = highlight(edArea.value + '\n', 'xml');
+    syncScroll(); // replacing innerHTML resets the <pre>'s scroll — realign it or the overlay jumps to the top
+  };
   edArea.addEventListener('input', syncHl);
-  edArea.addEventListener('scroll', () => { edPre.scrollTop = edArea.scrollTop; edPre.scrollLeft = edArea.scrollLeft; });
+  edArea.addEventListener('scroll', syncScroll);
   syncHl();
 
   /* -------- controls -------- */

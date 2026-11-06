@@ -18,11 +18,28 @@ export function hlXml(src) {
       const m = /^(<\/?)([\w\-.:]+)([\s\S]*?)(\/?>?)$/.exec(t);
       if (m) {
         push('x-punct', m[1]); push(m[1][1] === '/' ? 'x-endtag' : 'x-tag', m[2]);
-        let rest = m[3];
-        const attrRe = /([\w\-.:]+)(\s*=\s*)("[^"]*"|'[^']*')?/g; let am;
-        while ((am = attrRe.exec(rest))) {
-          push('x-attr', am[1]); push('x-punct', am[2]);
-          if (am[3]) push('x-val', am[3]); else push('', '');
+        // tokenize the interior but emit every character exactly once — the
+        // editor overlay must match the textarea byte-for-byte or the caret
+        // desyncs (stray \, spaces, bare attrs etc. used to be dropped here).
+        let rest = m[3], p = 0;
+        const wsRe = /\s+/y;
+        const attrRe = /([\w\-.:]+)(\s*=\s*("[^"]*"|'[^']*'|[^\s"'>]*))?/y;
+        while (p < rest.length) {
+          wsRe.lastIndex = p;
+          const wm = wsRe.exec(rest);
+          if (wm) { push('', wm[0]); p = wm.index + wm[0].length; continue; }
+          attrRe.lastIndex = p;
+          const am = attrRe.exec(rest);
+          if (am && am.index === p) {
+            push('x-attr', am[1]);
+            if (am[2] !== undefined) {
+              const val = am[2].replace(/^\s*=\s*/, '');
+              push('x-punct', am[2].slice(0, am[2].length - val.length));
+              push('x-val', val);
+            } // bare attribute (e.g. `disabled`) has no value to color
+            p = am.index + am[0].length; continue;
+          }
+          push('', rest[p]); p++; // newline/braces/backslash junk — emit, never drop
         }
         push('x-punct', m[4]);
       } else push('', t);
