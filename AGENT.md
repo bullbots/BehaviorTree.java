@@ -319,9 +319,12 @@ export default {
 
 - Repo root = upstream C++ BehaviorTree.CPP checkout; **never touch paths outside `docs/learn`
   and `AGENT.md`** (except reading them). Past mistake guard: do not `git add -A`.
-- ✅ Remote, per user decision (Nov 2026): `https://github.com/snowdriftdev/BehaviorTree.java.git`.
-  (The `bullbots` mirror still exists and redirects; if a push against `snowdriftdev` ever fails,
-  ask which repo is authoritative.)
+- ✅ Remotes (per user decision, Nov 2026): **origin is a push mirror** — every
+  `git push origin master` lands on BOTH
+  `https://github.com/snowdriftdev/BehaviorTree.java.git` (fetch + push) and
+  `https://github.com/bullbots/BehaviorTree.java.git` (second push URL — verify with
+  `git remote -v`, which lists two "push" lines). Keep the repos in lockstep: never push to one
+  and not the other. If a push to one fails, ask which repo is authoritative before diverging.
 - **Hosting**: Cloudflare (Pages/Workers Build) — build root `/docs/learn`, deploy command
   `npx wrangler deploy`. `docs/learn/wrangler.toml` configures the static-asset deploy; its
   `name` MUST equal the Cloudflare project name or wrangler creates a new worker instead.
