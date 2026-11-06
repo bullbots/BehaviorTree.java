@@ -1,0 +1,13 @@
+# Cloudflare deploy config for the BehaviorTree.java Academy (static site, no build step).
+#
+# The Pages/Workers Build runs `npx wrangler deploy` with this file's directory as the build
+# root — `directory = "."` therefore serves docs/learn as the static asset bundle.
+#
+# IMPORTANT: the `name` must EXACTLY match your Cloudflare project name (Workers & Pages →
+# your project → Settings → Name). If your project is named something else, edit this line —
+# otherwise wrangler will publish a brand-new worker instead of your existing one.
+name = "behaviortree-academy"
+compatibility_date = "2026-01-01"
+
+[assets]
+directory = "./"
