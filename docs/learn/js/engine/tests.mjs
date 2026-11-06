@@ -4,6 +4,7 @@ import { Runner } from './runner.js';
 import { parseScript } from './script.js';
 import { Blackboard } from './blackboard.js';
 import { createTreeFromText } from './factory.js';
+import { hlXml } from '../app/highlight.js';
 
 const CASES = [];
 let passed = 0, failed = 0;
@@ -302,6 +303,23 @@ ok('autoremap', () => {
 });
 
 header('== virtual stateful / commands ==');
+/* The exercise editor overlay must match the textarea BYTE FOR BYTE (see d77285f): hlXml must
+ * never drop or duplicate a character. Strip spans + decode entities and compare. */
+function hlPlain(src) {
+  const spans = src.replace(/<span[^>]*>|<\/span>/g, '');
+  return spans.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+}
+ok('hlXml emits every character exactly once (editor overlay invariant)', () => {
+  const cases = [
+    '<root BTCPP_format="4" main_tree_to_execute="Auto"><BehaviorTree ID="Auto"><Sequence><Intake ms="300"/></Sequence></BehaviorTree></root>',
+    '<foo disabled> text <bar a=b w="unclosed>',
+    '<a  b=1\nc="x" d=\\ <e f="g">',
+    '<!-- comment with <tag> and &#39; entities --><SetBlackboard value="\\"/>',
+  ];
+  for (let i = 0; i < cases.length; i++) {
+    if (hlPlain(hlXml(cases[i])) !== cases[i]) throw new Error(`case ${i} lost characters`);
+  }
+});
 ok('stateful action running across ticks', () => {
   const nodes = {
     A: {

@@ -189,7 +189,23 @@ Resolved across the build + full-review sessions (keep the list closed unless sy
   dropped unused imports
 
 Still open (subjective, user-testing tier):
-- Dark-mode contrast nits, quiz retry feel, `highlight.js` cosmetic regex edge cases.
+- Dark-mode contrast nits, quiz retry feel.
+
+## Re-educated after the upstream fix (d77285f, pulled Nov 2026)
+
+User-side fix pulled and reviewed: `fix(learn): live XML editor drops chars inside tags and
+desyncs on scroll`.
+- **hlXml** now emits every character of a tag exactly once (sticky attribute tokenizer + char
+  fallthrough for junk like `\`), and bare attributes (`<foo disabled>`) no longer vanish.
+- Editor overlay: `wrap="off"` on the textarea, and the scroll is re-aligned after every
+  re-highlight (replacing innerHTML used to reset the `<pre>`'s scroll).
+- Locked the invariant into the suite permanently: `hlXml emits every character exactly once`
+  (byte-for-byte span-strip round-trip over 4 pathological inputs) — the suite is now **42
+  cases** and the invariant holds.
+- Editor verified still rendering (`ed-area` + colored spans); full-route crawl: 0 issues;
+  exercises 22/22.
+- Touchpoints if the editor ever misbehaves again: `syncHl` / `syncScroll` in workspace.js and
+  the `hlXml` tokenizer in highlight.js.
 
 ## Fidelity ledger (engine vs the Java port — verified while building units)
 
